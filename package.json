@@ -1,0 +1,29 @@
+{
+  "name": "squeezebox-pwa",
+  "version": "0.1.0",
+  "description": "PWA player for Lyrion Music Server (LMS)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "bridge:dev": "node --env-file=.env.local --experimental-strip-types bridge/server.ts",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui"
+  },
+  "dependencies": {
+    "@lit/reactive-element": "^2.1.0",
+    "@material/web": "^1.4.0",
+    "lit": "^3.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@types/node": "^22.0.0",
+    "@vitest/ui": "^2.1.0",
+    "jsdom": "^25.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}
