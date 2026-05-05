@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "squeezebox-pwa",
+    "squeezebox-pwa": "squeezebox-pwa"
+  },
+  "targets": {
+    "squeezebox-pwa": {
+      "hosting": {
+        "squeezebox-pwa": [
+          "squeezebox-pwa"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

@@ -1,6 +1,6 @@
 # Squeezebox PWA
 
-A Progressive Web App that registers itself as a named **Squeezebox player** with [Lyrion Music Server (LMS)](https://lyrion.org/). It does not control an existing player — it *is* the player. LMS streams audio directly to the PWA and sends playback commands via the SlimProto protocol.
+A Progressive Web App that registers itself as a named **Squeezebox player** with [Lyrion Music Server (LMS)](https://lyrion.org/). It does not control an existing player — it _is_ the player. LMS streams audio directly to the PWA and sends playback commands via the SlimProto protocol.
 
 ## How it works
 
@@ -38,13 +38,13 @@ A local Node.js **bridge server** handles the SlimProto TCP connection on behalf
 
 ## Technology stack
 
-| Layer         | Technology                    |
-|---------------|-------------------------------|
-| Framework     | Vite + TypeScript             |
-| UI Components | Lit 3 (web components)        |
-| Testing       | Vitest + @testing-library/dom |
+| Layer         | Technology                        |
+| ------------- | --------------------------------- |
+| Framework     | Vite + TypeScript                 |
+| UI Components | Lit 3 (web components)            |
+| Testing       | Vitest + @testing-library/dom     |
 | PWA           | Service Worker + Web App Manifest |
-| Bridge        | Node.js (no deps, port 5174)  |
+| Bridge        | Node.js (no deps, port 5174)      |
 
 ## Prerequisites
 
