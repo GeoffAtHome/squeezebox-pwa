@@ -97,18 +97,41 @@ class StorageService {
     username?: string,
     password?: string,
     playerName?: string,
+    rememberPassword = false,
   ): void {
     this.set("serverUrl", serverUrl);
     if (username) this.set("username", username);
     if (playerName) this.set("playerName", playerName);
-    // Password lives in sessionStorage only — survives reload, cleared on close.
+    this.set("rememberPassword", rememberPassword);
+
+    // Password in sessionStorage survives reloads for this browser session.
     if (password) {
       try {
         sessionStorage.setItem(this.prefix + "password", password);
       } catch {
         // sessionStorage unavailable — proceed without caching
       }
+
+      if (rememberPassword) {
+        this.set("savedPassword", password);
+      } else {
+        this.remove("savedPassword");
+      }
+    } else {
+      try {
+        sessionStorage.removeItem(this.prefix + "password");
+      } catch {
+        // sessionStorage unavailable
+      }
+
+      if (!rememberPassword) {
+        this.remove("savedPassword");
+      }
     }
+  }
+
+  getRememberPassword(): boolean {
+    return this.get<boolean>("rememberPassword", false) ?? false;
   }
 
   /**
@@ -116,7 +139,19 @@ class StorageService {
    */
   getSessionPassword(): string | undefined {
     try {
-      return sessionStorage.getItem(this.prefix + "password") ?? undefined;
+      const sessionPassword =
+        sessionStorage.getItem(this.prefix + "password") ?? undefined;
+      if (sessionPassword) return sessionPassword;
+    } catch {
+      // sessionStorage unavailable
+    }
+
+    if (this.getRememberPassword()) {
+      return this.get<string>("savedPassword") ?? undefined;
+    }
+
+    try {
+      return undefined;
     } catch {
       return undefined;
     }

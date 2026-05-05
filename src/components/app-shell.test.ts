@@ -143,6 +143,7 @@ describe("app-shell", () => {
       "wrong-user",
       "wrong-pass",
       "Squeezebox PWA",
+      undefined,
     );
     expect(getRequiredElement(root, "connection-dialog")).toBeInstanceOf(
       HTMLElement,
@@ -151,5 +152,89 @@ describe("app-shell", () => {
     expect(root?.textContent).toContain("Error: Authentication failed");
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
-});
 
+  it("shows a bridge network error for bad LMS URL and keeps dialog visible", async () => {
+    const serverUrl = makeServerUrl("http://0.0.0.199:9000");
+    vi.spyOn(lmsConnection, "connect").mockImplementation(async () => {
+      connectionStateListener?.({
+        status: CONNECTION_STATUS_VALUES.ERROR,
+        error: "connect ENETUNREACH 0.0.0.199:3483",
+        serverUrl,
+      });
+      throw new Error("connect ENETUNREACH 0.0.0.199:3483");
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const element = document.createElement("app-shell");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const root = element.shadowRoot;
+    const dialog = getRequiredElement(root, "connection-dialog");
+
+    dialog.dispatchEvent(
+      new CustomEvent("connect", {
+        detail: {
+          serverUrl: "http://0.0.0.199:9000",
+          username: "SlimpMP3",
+          password: "hiwiccp",
+          playerName: "Squeezebox PWA",
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    expect(getRequiredElement(root, "connection-dialog")).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(root?.querySelector("player-controls")).toBeNull();
+    expect(root?.textContent).toContain(
+      "Error: connect ENETUNREACH 0.0.0.199:3483",
+    );
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it("passes rememberPassword through connect event", async () => {
+    const connectSpy = vi.spyOn(lmsConnection, "connect").mockResolvedValue();
+
+    const element = document.createElement("app-shell");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const root = element.shadowRoot;
+    const dialog = getRequiredElement(root, "connection-dialog");
+
+    dialog.dispatchEvent(
+      new CustomEvent("connect", {
+        detail: {
+          serverUrl: "http://localhost:9000",
+          username: "SlimpMP3",
+          password: "hiwiccp",
+          playerName: "Squeezebox PWA",
+          rememberPassword: true,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    expect(connectSpy).toHaveBeenCalledWith(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "Squeezebox PWA",
+      true,
+    );
+  });
+});

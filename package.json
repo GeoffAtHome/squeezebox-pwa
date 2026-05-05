@@ -8,7 +8,7 @@
     "bridge:dev": "node --env-file=.env.local --experimental-strip-types bridge/server.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui"
   },

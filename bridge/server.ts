@@ -46,6 +46,7 @@ type Session = {
   /** Timer to defer TCP teardown when SSE disconnects — allows reconnect */
   sseCleanupTimer: ReturnType<typeof setTimeout> | null;
   currentStream: StreamSource | null;
+  streamRevision: number;
 };
 
 type RequestPayload = Record<string, unknown>;
@@ -60,6 +61,7 @@ const METADATA_INTERVAL_MS = 5000;
 /** How long to keep the LMS TCP connection alive after the SSE stream closes */
 const SSE_GRACE_MS = 30_000;
 const BRIDGE_LOG_COMMANDS = process.env.BRIDGE_LOG_COMMANDS !== "0";
+const BRIDGE_LOG_REQUESTS = process.env.BRIDGE_LOG_REQUESTS !== "0";
 const DEFAULT_SERVER_URL = process.env.VITE_LMS_SERVER_URL;
 const DEFAULT_USERNAME = process.env.VITE_LMS_USERNAME;
 const DEFAULT_PASSWORD = process.env.VITE_LMS_PASSWORD;
@@ -91,6 +93,14 @@ const logCommand = (
   details: Record<string, unknown>,
 ): void => {
   if (!BRIDGE_LOG_COMMANDS) return;
+  console.log(`[bridge] ${message}`, details);
+};
+
+const logRequest = (
+  message: string,
+  details: Record<string, unknown>,
+): void => {
+  if (!BRIDGE_LOG_REQUESTS) return;
   console.log(`[bridge] ${message}`, details);
 };
 
@@ -139,6 +149,498 @@ type LmsStatusResponse = {
   duration?: number;
 };
 
+type LmsMenuResult = {
+  item_loop?: unknown[];
+  count?: number;
+  offset?: number;
+};
+
+type LmsBrowseEntry = {
+  id?: string | number;
+  artist?: string;
+  album?: string;
+  genre?: string;
+  year?: string | number;
+  title?: string;
+  playlist?: string;
+  name?: string;
+  type?: string;
+};
+
+type BridgeBrowseItem = {
+  id: string;
+  text: string;
+  hasitems?: number | boolean;
+  type?: string;
+};
+
+type BridgeBrowseResult = {
+  item_loop: BridgeBrowseItem[];
+  count: number;
+  offset: number;
+};
+
+const ROOT_BROWSE_ITEMS: BridgeBrowseItem[] = [
+  { id: "section:artists", text: "Artists", hasitems: 1, type: "section" },
+  { id: "section:albums", text: "Albums", hasitems: 1, type: "section" },
+  { id: "section:genres", text: "Genres", hasitems: 1, type: "section" },
+  { id: "section:years", text: "Years", hasitems: 1, type: "section" },
+  {
+    id: "section:playlists",
+    text: "Playlists",
+    hasitems: 1,
+    type: "section",
+  },
+  { id: "section:folders", text: "Folders", hasitems: 1, type: "section" },
+];
+
+const buildBrowseResult = (
+  itemLoop: BridgeBrowseItem[],
+): BridgeBrowseResult => ({
+  item_loop: itemLoop,
+  count: itemLoop.length,
+  offset: 0,
+});
+
+const toBrowseSectionItems = (): BridgeBrowseResult =>
+  buildBrowseResult(ROOT_BROWSE_ITEMS);
+
+const parseBrowseId = (
+  itemId?: string,
+): { kind: string; value?: string } | null => {
+  if (!itemId) return null;
+
+  const separatorIndex = itemId.indexOf(":");
+  if (separatorIndex <= 0) {
+    return { kind: itemId };
+  }
+
+  return {
+    kind: itemId.slice(0, separatorIndex),
+    value: itemId.slice(separatorIndex + 1),
+  };
+};
+
+const mapQueryItems = (
+  entries: LmsBrowseEntry[] | undefined,
+  mapEntry: (entry: LmsBrowseEntry, index: number) => BridgeBrowseItem | null,
+): BridgeBrowseItem[] => {
+  if (!Array.isArray(entries)) return [];
+
+  return entries
+    .map((entry, index) => mapEntry(entry, index))
+    .filter((entry): entry is BridgeBrowseItem => entry !== null);
+};
+
+const toText = (value: unknown, fallback: string): string => {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return fallback;
+};
+
+const browseLibrary = async (
+  config: BridgeConfig,
+  start: number,
+  quantity: number,
+  itemId?: string,
+  search?: string,
+): Promise<BridgeBrowseResult> => {
+  const target = parseBrowseId(itemId);
+
+  if (search) {
+    const result = await callJsonRpc<{
+      titles_loop?: LmsBrowseEntry[];
+      song_loop?: LmsBrowseEntry[];
+      count?: number;
+    }>(config, [0, ["titles", start, quantity, `search:${search}`]]);
+
+    return {
+      item_loop: mapQueryItems(
+        result.titles_loop ?? result.song_loop,
+        (entry, index) => {
+          if (entry.id === undefined || entry.id === null) return null;
+          return {
+            id: `track:${entry.id}`,
+            text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+            hasitems: 0,
+            type: "track",
+          };
+        },
+      ),
+      count: Number(result.count ?? 0),
+      offset: start,
+    };
+  }
+
+  if (!target) {
+    return toBrowseSectionItems();
+  }
+
+  switch (target.kind) {
+    case "section": {
+      switch (target.value) {
+        case "artists": {
+          const result = await callJsonRpc<{
+            artist_loop?: LmsBrowseEntry[];
+            artists_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["artists", start, quantity]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.artist_loop ?? result.artists_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                return {
+                  id: `artist:${entry.id}`,
+                  text: toText(
+                    entry.artist ?? entry.name,
+                    `Artist ${index + 1}`,
+                  ),
+                  hasitems: 1,
+                  type: "artist",
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "albums": {
+          const result = await callJsonRpc<{
+            albums_loop?: LmsBrowseEntry[];
+            album_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["albums", start, quantity, "tags:alj"]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.albums_loop ?? result.album_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                return {
+                  id: `album:${entry.id}`,
+                  text: toText(
+                    entry.album ?? entry.title,
+                    `Album ${index + 1}`,
+                  ),
+                  hasitems: 1,
+                  type: "album",
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "genres": {
+          const result = await callJsonRpc<{
+            genres_loop?: LmsBrowseEntry[];
+            genre_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["genres", start, quantity]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.genres_loop ?? result.genre_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                return {
+                  id: `genre:${entry.id}`,
+                  text: toText(entry.genre ?? entry.name, `Genre ${index + 1}`),
+                  hasitems: 1,
+                  type: "genre",
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "years": {
+          const result = await callJsonRpc<{
+            years_loop?: LmsBrowseEntry[];
+            year_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["years", start, quantity, "hasAlbums:1"]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.years_loop ?? result.year_loop,
+              (entry, index) => {
+                const yearValue =
+                  typeof entry.year === "string" ||
+                  typeof entry.year === "number"
+                    ? String(entry.year)
+                    : undefined;
+                if (!yearValue) return null;
+                return {
+                  id: `year:${yearValue}`,
+                  text: toText(entry.year, `Year ${index + 1}`),
+                  hasitems: 1,
+                  type: "year",
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "playlists": {
+          const result = await callJsonRpc<{
+            playlists_loop?: LmsBrowseEntry[];
+            playlist_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["playlists", start, quantity]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.playlists_loop ?? result.playlist_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                return {
+                  id: `playlist:${entry.id}`,
+                  text: toText(
+                    entry.playlist ?? entry.name,
+                    `Playlist ${index + 1}`,
+                  ),
+                  hasitems: 1,
+                  type: "playlist",
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "folders": {
+          const result = await callJsonRpc<{
+            folder_loop?: LmsBrowseEntry[];
+            item_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["musicfolder", start, quantity]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.folder_loop ?? result.item_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                const type = toText(entry.type, "unknown");
+                const isFolder = type === "dir" || type === "folder";
+                const isPlaylist = type === "playlist";
+
+                return {
+                  id: isFolder
+                    ? `folder:${entry.id}`
+                    : isPlaylist
+                      ? `playlist:${entry.id}`
+                      : `track:${entry.id}`,
+                  text: toText(entry.title ?? entry.name, `Item ${index + 1}`),
+                  hasitems: isFolder ? 1 : 0,
+                  type,
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        default:
+          return buildBrowseResult([]);
+      }
+    }
+
+    case "artist": {
+      const result = await callJsonRpc<{
+        albums_loop?: LmsBrowseEntry[];
+        album_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [0, ["albums", start, quantity, `artist_id:${target.value}`]]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.albums_loop ?? result.album_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            return {
+              id: `album:${entry.id}`,
+              text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              hasitems: 1,
+              type: "album",
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    case "genre": {
+      const result = await callJsonRpc<{
+        albums_loop?: LmsBrowseEntry[];
+        album_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [0, ["albums", start, quantity, `genre_id:${target.value}`]]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.albums_loop ?? result.album_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            return {
+              id: `album:${entry.id}`,
+              text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              hasitems: 1,
+              type: "album",
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    case "year": {
+      const result = await callJsonRpc<{
+        albums_loop?: LmsBrowseEntry[];
+        album_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [0, ["albums", start, quantity, `year:${target.value}`]]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.albums_loop ?? result.album_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            return {
+              id: `album:${entry.id}`,
+              text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              hasitems: 1,
+              type: "album",
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    case "album": {
+      const result = await callJsonRpc<{
+        titles_loop?: LmsBrowseEntry[];
+        song_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [
+        0,
+        [
+          "titles",
+          start,
+          quantity,
+          `album_id:${target.value}`,
+          "sort:albumtrack",
+        ],
+      ]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.titles_loop ?? result.song_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            return {
+              id: `track:${entry.id}`,
+              text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+              hasitems: 0,
+              type: "track",
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    case "playlist": {
+      const result = await callJsonRpc<{
+        playlisttracks_loop?: LmsBrowseEntry[];
+        titles_loop?: LmsBrowseEntry[];
+        song_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [
+        0,
+        ["playlists", "tracks", start, quantity, `playlist_id:${target.value}`],
+      ]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.playlisttracks_loop ?? result.titles_loop ?? result.song_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            return {
+              id: `track:${entry.id}`,
+              text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+              hasitems: 0,
+              type: "track",
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    case "folder": {
+      const result = await callJsonRpc<{
+        folder_loop?: LmsBrowseEntry[];
+        item_loop?: LmsBrowseEntry[];
+        count?: number;
+      }>(config, [
+        0,
+        ["musicfolder", start, quantity, `folder_id:${target.value}`],
+      ]);
+
+      return {
+        item_loop: mapQueryItems(
+          result.folder_loop ?? result.item_loop,
+          (entry, index) => {
+            if (entry.id === undefined || entry.id === null) return null;
+            const type = toText(entry.type, "unknown");
+            const isFolder = type === "dir" || type === "folder";
+            const isPlaylist = type === "playlist";
+
+            return {
+              id: isFolder
+                ? `folder:${entry.id}`
+                : isPlaylist
+                  ? `playlist:${entry.id}`
+                  : `track:${entry.id}`,
+              text: toText(entry.title ?? entry.name, `Item ${index + 1}`),
+              hasitems: isFolder ? 1 : 0,
+              type,
+            };
+          },
+        ),
+        count: Number(result.count ?? 0),
+        offset: start,
+      };
+    }
+
+    default:
+      return buildBrowseResult([]);
+  }
+};
+
 const buildArtworkProxyUrl = (
   session: Session,
   current?: {
@@ -168,7 +670,10 @@ const buildArtworkProxyUrl = (
 };
 
 const buildStreamProxyUrl = (session: Session): string =>
-  buildSessionUrl("/api/stream", { token: session.token });
+  buildSessionUrl("/api/stream", {
+    token: session.token,
+    rev: session.streamRevision,
+  });
 
 const refreshPlayerStatus = async (session: Session): Promise<void> => {
   try {
@@ -316,8 +821,10 @@ const handleLmsCommand = (cmd: SlimCmd, session: Session): void => {
           l: "audio/alac",
         };
         const mimeType = mimeByFormat[formatByte] ?? "audio/mpeg";
+        session.streamRevision += 1;
+        const streamUrl = `http://${serverIp}:${serverPort}${path}`;
         session.currentStream = {
-          url: `http://${serverIp}:${serverPort}${path}`,
+          url: streamUrl,
           headers: requestHeaders,
           mimeType,
         };
@@ -549,6 +1056,43 @@ const registerWithLms = (session: Session): Promise<void> => {
   });
 };
 
+const scheduleTrackDoneAdvanceFallback = (session: Session): void => {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const status = await callJsonRpc<LmsStatusResponse>(session.config, [
+          session.mac,
+          ["status", "-", 1],
+        ]);
+
+        // If STMd did not advance playback, nudge LMS to the next queue item
+        // and explicitly resume playback.
+        if (status.mode === "stop") {
+          logCommand("trackdone fallback advance", {
+            playerId: session.mac,
+            mode: status.mode,
+          });
+
+          await callJsonRpc<unknown>(session.config, [
+            session.mac,
+            ["playlist", "index", "+1"],
+          ]);
+
+          await callJsonRpc<unknown>(session.config, [
+            session.mac,
+            ["pause", 0],
+          ]);
+        }
+      } catch (error) {
+        logCommand("trackdone fallback failed", {
+          playerId: session.mac,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, 800);
+};
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 const normalizeServerUrl = (serverUrl?: string): string => {
@@ -724,20 +1268,32 @@ const handleRequest = async (
     return;
   }
 
+  const requestUrl = new URL(req.url, "http://localhost");
+  const requestPath = requestUrl.pathname.replace(/\/+$/, "") || "/";
+
+  logRequest("request", {
+    method: req.method,
+    rawUrl: req.url,
+    path: requestPath,
+    origin: req.headers.origin,
+    forwardedHost: req.headers["x-forwarded-host"],
+    forwardedProto: req.headers["x-forwarded-proto"],
+  });
+
   if (req.method === "OPTIONS") {
     sendNoContent(res);
     return;
   }
 
   // GET /health
-  if (req.method === "GET" && req.url === "/health") {
+  if (req.method === "GET" && requestPath === "/health") {
     sendJson(res, 200, { ok: true, port: BRIDGE_PORT });
     return;
   }
 
   // GET /api/artwork?token=...&coverid=...|trackId=...|player=...
-  if (req.method === "GET" && req.url.startsWith("/api/artwork")) {
-    const params = new URL(req.url, "http://localhost").searchParams;
+  if (req.method === "GET" && requestPath === "/api/artwork") {
+    const params = requestUrl.searchParams;
     const token = params.get("token");
     if (!token) {
       sendJson(res, 400, { error: "Missing token" });
@@ -759,10 +1315,8 @@ const handleRequest = async (
   }
 
   // GET /api/stream?token=...
-  if (req.method === "GET" && req.url.startsWith("/api/stream")) {
-    const token = new URL(req.url, "http://localhost").searchParams.get(
-      "token",
-    );
+  if (req.method === "GET" && requestPath === "/api/stream") {
+    const token = requestUrl.searchParams.get("token");
     if (!token) {
       sendJson(res, 400, { error: "Missing token" });
       return;
@@ -779,10 +1333,8 @@ const handleRequest = async (
   }
 
   // GET /api/events?token=…  (SSE stream)
-  if (req.method === "GET" && req.url.startsWith("/api/events")) {
-    const token = new URL(req.url, "http://localhost").searchParams.get(
-      "token",
-    );
+  if (req.method === "GET" && requestPath === "/api/events") {
+    const token = requestUrl.searchParams.get("token");
     if (!token) {
       sendJson(res, 400, { error: "Missing token" });
       return;
@@ -845,7 +1397,7 @@ const handleRequest = async (
     const payload = await readBody(req);
 
     // POST /api/register
-    if (req.url === "/api/register") {
+    if (requestPath === "/api/register") {
       const serverUrl = normalizeServerUrl(
         typeof payload.serverUrl === "string"
           ? payload.serverUrl
@@ -883,10 +1435,34 @@ const handleRequest = async (
         metadataTimer: null,
         sseCleanupTimer: null,
         currentStream: null,
+        streamRevision: 0,
       };
 
       // Open TCP to LMS and wait for first response (confirms registration)
       await registerWithLms(session);
+
+      // Validate JSON-RPC credentials up front so bad credentials fail during
+      // connect rather than later on first control command.
+      try {
+        await callJsonRpc<LmsStatusResponse>(session.config, [
+          session.mac,
+          ["status", "-", 1],
+        ]);
+      } catch (error) {
+        if (session.metadataTimer) {
+          clearInterval(session.metadataTimer);
+          session.metadataTimer = null;
+        }
+        if (session.heartbeatTimer) {
+          clearInterval(session.heartbeatTimer);
+          session.heartbeatTimer = null;
+        }
+        if (session.socket && !session.socket.destroyed) {
+          session.socket.destroy();
+          session.socket = null;
+        }
+        throw error;
+      }
 
       sessions.set(token, session);
       macToToken.set(mac, token);
@@ -895,8 +1471,105 @@ const handleRequest = async (
       return;
     }
 
+    // POST /api/browse  (library menu via LMS JSON-RPC)
+    if (requestPath === "/api/browse") {
+      const token =
+        typeof payload.token === "string" ? payload.token : undefined;
+      const session = token ? sessions.get(token) : undefined;
+
+      logRequest("browse request", {
+        hasToken: Boolean(token),
+        hasSession: Boolean(session),
+        playerId:
+          typeof payload.playerId === "string" ? payload.playerId : undefined,
+        itemId: typeof payload.itemId === "string" ? payload.itemId : undefined,
+        start: typeof payload.start === "number" ? payload.start : undefined,
+        quantity:
+          typeof payload.quantity === "number" ? payload.quantity : undefined,
+        search: typeof payload.search === "string" ? payload.search : undefined,
+      });
+
+      if (token && !session) {
+        sendJson(res, 404, { error: "Session not found or expired" });
+        return;
+      }
+
+      const serverUrl = session
+        ? session.config.serverUrl
+        : normalizeServerUrl(
+            typeof payload.serverUrl === "string"
+              ? payload.serverUrl
+              : DEFAULT_SERVER_URL,
+          );
+      const username = session
+        ? session.config.username
+        : typeof payload.username === "string"
+          ? payload.username
+          : DEFAULT_USERNAME;
+      const password = session
+        ? session.config.password
+        : typeof payload.password === "string"
+          ? payload.password
+          : DEFAULT_PASSWORD;
+      const playerName = session
+        ? session.config.playerName
+        : typeof payload.playerName === "string"
+          ? payload.playerName
+          : "Squeezebox PWA";
+      const playerId =
+        typeof payload.playerId === "string"
+          ? payload.playerId
+          : (session?.mac ?? playerNameToMac(playerName));
+
+      const start =
+        typeof payload.start === "number" && Number.isFinite(payload.start)
+          ? Math.max(0, Math.floor(payload.start))
+          : 0;
+      const quantity =
+        typeof payload.quantity === "number" &&
+        Number.isFinite(payload.quantity)
+          ? Math.max(1, Math.floor(payload.quantity))
+          : 100;
+      const itemId =
+        typeof payload.itemId === "string" && payload.itemId.trim()
+          ? payload.itemId.trim()
+          : undefined;
+      const search =
+        typeof payload.search === "string" && payload.search.trim()
+          ? payload.search.trim()
+          : undefined;
+
+      const config: BridgeConfig = {
+        serverUrl,
+        username,
+        password,
+        playerName,
+      };
+
+      const result = await browseLibrary(
+        config,
+        start,
+        quantity,
+        itemId,
+        search,
+      );
+
+      logRequest("browse result", {
+        playerId,
+        itemCount: Array.isArray(result.item_loop)
+          ? result.item_loop.length
+          : 0,
+        count: result.count,
+        offset: result.offset,
+        firstItem: result.item_loop?.[0]?.text,
+      });
+
+      sendJson(res, 200, { ok: true, result });
+      return;
+    }
+
     // POST /api/player/command  (play, pause, skip etc. via LMS JSON-RPC)
-    if (req.url === "/api/player/command") {
+    if (requestPath === "/api/player/command") {
       const token =
         typeof payload.token === "string" ? payload.token : undefined;
       const session = token ? sessions.get(token) : undefined;
@@ -968,16 +1641,41 @@ const handleRequest = async (
       return;
     }
 
+    // POST /api/player/trackdone  — player reports audio playback ended; advance LMS queue
+    if (requestPath === "/api/player/trackdone") {
+      const token =
+        typeof payload.token === "string" ? payload.token : undefined;
+      const session = token ? sessions.get(token) : undefined;
+
+      if (!session) {
+        sendJson(res, 404, { error: "Session not found or expired" });
+        return;
+      }
+
+      session.socket?.write(buildStat("STMd"));
+      scheduleTrackDoneAdvanceFallback(session);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    logRequest("route not found", {
+      method: req.method,
+      rawUrl: req.url,
+      path: requestPath,
+    });
     sendJson(res, 404, { error: "Route not found" });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown bridge error";
+    const statusMatch = message.match(/status\s+(\d{3})/i);
+    const statusCode = statusMatch ? Number(statusMatch[1]) : 500;
+    const responseCode = Number.isFinite(statusCode) ? statusCode : 500;
     logCommand("request failed", {
       path: req.url,
       method: req.method,
       message,
     });
-    sendJson(res, 500, { error: message });
+    sendJson(res, responseCode, { error: message });
   }
 };
 

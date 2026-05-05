@@ -6,6 +6,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import "./connection-dialog";
 import "./player-controls";
+import "./browse-library";
 import { lmsConnection, type ConnectionState } from "@services/lms-connection";
 import { CONNECTION_STATUS_VALUES } from "@utils/types";
 
@@ -56,6 +57,11 @@ export class AppShell extends LitElement {
       padding: 1rem;
     }
 
+    .connected-view {
+      display: grid;
+      gap: 1rem;
+    }
+
     .footer {
       padding: 1rem;
       border-top: 1px solid #333;
@@ -83,6 +89,8 @@ export class AppShell extends LitElement {
       this.connectionState = state;
       if (state.status === CONNECTION_STATUS_VALUES.CONNECTED) {
         this.showPlayer = true;
+      } else if (state.status === CONNECTION_STATUS_VALUES.ERROR) {
+        this.showPlayer = false;
       }
     });
 
@@ -117,9 +125,16 @@ export class AppShell extends LitElement {
     username?: string,
     password?: string,
     playerName?: string,
+    rememberPassword?: boolean,
   ) => {
     try {
-      await lmsConnection.connect(serverUrl, username, password, playerName);
+      await lmsConnection.connect(
+        serverUrl,
+        username,
+        password,
+        playerName,
+        rememberPassword,
+      );
       if (this.installPromptEvent) this.installPromptEvent.prompt();
     } catch (error) {
       console.error("Connection failed:", error);
@@ -140,7 +155,10 @@ export class AppShell extends LitElement {
               </div>`
             : ""}
           ${this.showPlayer
-            ? html`<player-controls></player-controls>`
+            ? html`<div class="connected-view">
+                <player-controls></player-controls>
+                <browse-library></browse-library>
+              </div>`
             : html`<connection-dialog
                 @connect=${(e: CustomEvent) =>
                   this.handleConnectionSuccess(
@@ -148,6 +166,7 @@ export class AppShell extends LitElement {
                     e.detail.username,
                     e.detail.password,
                     e.detail.playerName,
+                    e.detail.rememberPassword,
                   )}
               ></connection-dialog>`}
         </div>

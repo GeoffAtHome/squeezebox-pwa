@@ -19,6 +19,9 @@ export class ConnectionDialog extends LitElement {
   password = "";
 
   @state()
+  rememberPassword = false;
+
+  @state()
   playerName = "Squeezebox PWA";
 
   @state()
@@ -124,6 +127,22 @@ export class ConnectionDialog extends LitElement {
       margin-top: 0.5rem;
     }
 
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      color: #ddd;
+      font-size: 0.9rem;
+    }
+
+    .checkbox-group input {
+      width: auto;
+      padding: 0;
+      margin: 0;
+      accent-color: #0066cc;
+    }
+
     h2 {
       margin: 0 0 1.5rem 0;
       font-size: 1.3rem;
@@ -140,6 +159,7 @@ export class ConnectionDialog extends LitElement {
       this.username = config.username || "";
       this.playerName = config.playerName || "Squeezebox PWA";
     }
+    this.rememberPassword = storage.getRememberPassword();
   }
 
   private handleConnect = async () => {
@@ -161,6 +181,7 @@ export class ConnectionDialog extends LitElement {
             username: this.username || undefined,
             password: this.password || undefined,
             playerName: this.playerName.trim() || "Squeezebox PWA",
+            rememberPassword: this.rememberPassword,
           },
           bubbles: true,
           composed: true,
@@ -193,6 +214,11 @@ export class ConnectionDialog extends LitElement {
   private handlePlayerNameChange = (e: Event) => {
     const target = e.target as HTMLInputElement;
     this.playerName = target.value;
+  };
+
+  private handleRememberPasswordChange = (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    this.rememberPassword = target.checked;
   };
 
   private handleKeyPress = (e: KeyboardEvent) => {
@@ -265,6 +291,16 @@ export class ConnectionDialog extends LitElement {
               ?disabled=${this.isConnecting}
               autocomplete="current-password"
             />
+            <label class="checkbox-group" for="remember-password">
+              <input
+                id="remember-password"
+                type="checkbox"
+                .checked=${this.rememberPassword}
+                @change=${this.handleRememberPasswordChange}
+                ?disabled=${this.isConnecting}
+              />
+              Remember password on this device
+            </label>
           </div>
 
           <div class="button-group">

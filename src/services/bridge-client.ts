@@ -16,6 +16,34 @@ export interface RegisterResult {
   playerName: string;
 }
 
+export interface BrowseConfig extends RegisterConfig {
+  playerId: string;
+  token?: string;
+}
+
+export interface BrowseQuery {
+  itemId?: string;
+  start?: number;
+  quantity?: number;
+  search?: string;
+}
+
+export interface BrowseItem {
+  id?: string | number;
+  node?: string;
+  text?: string;
+  name?: string;
+  type?: string;
+  hasitems?: number | boolean;
+  passthrough?: Record<string, unknown>;
+}
+
+export interface BrowseResult {
+  item_loop?: BrowseItem[];
+  count?: number;
+  offset?: number;
+}
+
 export type PlayerEvent =
   | { type: "registered"; playerId: string; playerName: string }
   | { type: "stream"; url: string; mimeType: string }
@@ -194,6 +222,51 @@ export class BridgeClient {
       );
       throw new Error(data.error ?? "Player command failed");
     }
+  }
+
+  /**
+   * Notify the bridge that audio playback ended so it can send STMd to LMS
+   * and advance the queue.
+   */
+  async trackDone(token: string): Promise<void> {
+    await fetch(`${this.bridgeUrl}/api/player/trackdone`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  /**
+   * Browse LMS library menu for this player session.
+   */
+  async browse(
+    config: BrowseConfig,
+    query: BrowseQuery = {},
+  ): Promise<BrowseResult> {
+    const res = await fetch(`${this.bridgeUrl}/api/browse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...config,
+        token: config.token,
+        itemId: query.itemId,
+        start: query.start,
+        quantity: query.quantity,
+        search: query.search,
+      }),
+    });
+
+    const data = await parseJsonBody<{
+      ok?: boolean;
+      error?: string;
+      result?: BrowseResult;
+    }>(res, "/api/browse");
+
+    if (!res.ok || !data.result) {
+      throw new Error(data.error ?? "Browse request failed");
+    }
+
+    return data.result;
   }
 }
 

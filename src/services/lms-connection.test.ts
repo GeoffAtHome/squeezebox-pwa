@@ -8,14 +8,30 @@ const loadSubject = async (options?: {
     username?: string;
     playerName?: string;
   } | null;
+  storageData?: Record<string, unknown>;
+  sessionPassword?: string;
 }) => {
   vi.resetModules();
+
+  const storageMap = new Map<string, unknown>(
+    Object.entries(options?.storageData ?? {}),
+  );
+
+  const storageSet = vi.fn((key: string, value: unknown) => {
+    storageMap.set(key, value);
+  });
+  const storageGet = vi.fn((key: string, defaultValue?: unknown) => {
+    return storageMap.has(key) ? storageMap.get(key) : defaultValue;
+  });
+  const storageRemove = vi.fn((key: string) => {
+    storageMap.delete(key);
+  });
 
   const saveServerConfig = vi.fn();
   const getServerConfig = vi
     .fn()
     .mockReturnValue(options?.storedConfig ?? null);
-  const getSessionPassword = vi.fn().mockReturnValue(undefined);
+  const getSessionPassword = vi.fn().mockReturnValue(options?.sessionPassword);
 
   const mockRegisterPlayer = vi.fn().mockResolvedValue({
     token: "test-token",
@@ -24,17 +40,24 @@ const loadSubject = async (options?: {
   });
   const mockOpenEventStream = vi.fn().mockReturnValue(() => {});
   const mockPlayerCommand = vi.fn().mockResolvedValue(undefined);
+  const mockBrowse = vi.fn().mockResolvedValue({ item_loop: [] });
+  const mockTrackDone = vi.fn().mockResolvedValue(undefined);
 
   vi.doMock("@services/bridge-client", () => ({
     bridgeClient: {
       registerPlayer: mockRegisterPlayer,
       openEventStream: mockOpenEventStream,
       playerCommand: mockPlayerCommand,
+      browse: mockBrowse,
+      trackDone: mockTrackDone,
     },
   }));
 
   vi.doMock("./storage", () => ({
     storage: {
+      set: storageSet,
+      get: storageGet,
+      remove: storageRemove,
       saveServerConfig,
       getServerConfig,
       getSessionPassword,
@@ -48,8 +71,14 @@ const loadSubject = async (options?: {
     mockRegisterPlayer,
     mockOpenEventStream,
     mockPlayerCommand,
+    mockBrowse,
+    mockTrackDone,
     saveServerConfig,
     getServerConfig,
+    storageSet,
+    storageGet,
+    storageRemove,
+    storageMap,
   };
 };
 
@@ -90,6 +119,7 @@ describe("lmsConnection", () => {
       "SlimpMP3",
       "hiwiccp",
       "My Player",
+      false,
     );
     expect(lmsConnection.getState()).toEqual(
       expect.objectContaining({
@@ -113,6 +143,64 @@ describe("lmsConnection", () => {
     );
   });
 
+  it("surfaces bridge network errors from register (e.g. bad LMS URL host)", async () => {
+    const { lmsConnection, mockRegisterPlayer } = await loadSubject();
+
+    mockRegisterPlayer.mockRejectedValueOnce(
+      new Error("connect ENETUNREACH 0.0.0.199:3483"),
+    );
+
+    await expect(
+      lmsConnection.connect("http://0.0.0.199:9000", "SlimpMP3", "hiwiccp"),
+    ).rejects.toThrow("connect ENETUNREACH 0.0.0.199:3483");
+
+    expect(lmsConnection.getState()).toEqual(
+      expect.objectContaining({
+        status: CONNECTION_STATUS_VALUES.ERROR,
+        error: "connect ENETUNREACH 0.0.0.199:3483",
+      }),
+    );
+  });
+
+  it("persists rememberPassword preference when connect opts in", async () => {
+    const { lmsConnection, saveServerConfig } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+      true,
+    );
+
+    expect(saveServerConfig).toHaveBeenCalledWith(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+      true,
+    );
+  });
+
+  it("surfaces auth failures when register returns LMS 401", async () => {
+    const { lmsConnection, mockRegisterPlayer } = await loadSubject();
+
+    mockRegisterPlayer.mockRejectedValueOnce(
+      new Error("LMS JSON-RPC failed with status 401"),
+    );
+
+    await expect(
+      lmsConnection.connect("http://localhost:9000", "SlimpMP3", "wrong"),
+    ).rejects.toThrow("LMS JSON-RPC failed with status 401");
+
+    expect(lmsConnection.getState()).toEqual(
+      expect.objectContaining({
+        status: CONNECTION_STATUS_VALUES.ERROR,
+        error: "LMS JSON-RPC failed with status 401",
+      }),
+    );
+  });
+
   it("restores connection from storage", async () => {
     const storedConfig = {
       serverUrl: "http://localhost:9000",
@@ -121,6 +209,7 @@ describe("lmsConnection", () => {
     };
     const { lmsConnection, mockRegisterPlayer } = await loadSubject({
       storedConfig,
+      sessionPassword: "hiwiccp",
     });
 
     const result = await lmsConnection.restoreConnection();
@@ -144,5 +233,256 @@ describe("lmsConnection", () => {
 
     expect(result).toBe(false);
     expect(mockRegisterPlayer).not.toHaveBeenCalled();
+  });
+
+  it("returns false from restoreConnection when username exists but session password is missing", async () => {
+    const storedConfig = {
+      serverUrl: "http://localhost:9000",
+      username: "SlimpMP3",
+      playerName: "Saved Player",
+    };
+    const { lmsConnection, mockRegisterPlayer } = await loadSubject({
+      storedConfig,
+      sessionPassword: undefined,
+    });
+
+    const result = await lmsConnection.restoreConnection();
+
+    expect(result).toBe(false);
+    expect(mockRegisterPlayer).not.toHaveBeenCalled();
+  });
+
+  it("browses library using active session credentials", async () => {
+    const { lmsConnection, mockBrowse } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+
+    expect(mockBrowse).toHaveBeenCalledWith(
+      {
+        serverUrl: "http://localhost:9000",
+        username: "SlimpMP3",
+        password: "hiwiccp",
+        playerName: "My Player",
+        token: "test-token",
+        playerId: "02:00:00:aa:bb:cc",
+      },
+      {
+        itemId: "myapps",
+        start: 0,
+        quantity: 50,
+        search: undefined,
+      },
+    );
+  });
+
+  it("uses cached browse results for repeated identical queries", async () => {
+    const { lmsConnection, mockBrowse } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+
+    expect(mockBrowse).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches again after marking browse cache as stale", async () => {
+    const { lmsConnection, mockBrowse } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    lmsConnection.markBrowseCacheStale();
+    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+
+    expect(mockBrowse).toHaveBeenCalledTimes(2);
+  });
+
+  it("hydrates browse cache from storage after reconnect", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheStorageKey = `browseCache_${encodeURIComponent(`http://localhost:9000::${playerId}`)}`;
+    const cachedResult = {
+      item_loop: [{ id: "myapps", text: "My Apps" }],
+    };
+
+    const { lmsConnection, mockBrowse } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+        [cacheStorageKey]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const result = await lmsConnection.browseMenu({
+      itemId: "myapps",
+      quantity: 50,
+    });
+
+    expect(result).toEqual(cachedResult);
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("plays browse item via playlistcontrol load command", async () => {
+    const { lmsConnection, mockPlayerCommand } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.playBrowseItem("track:123");
+
+    expect(mockPlayerCommand).toHaveBeenCalledWith(
+      {
+        serverUrl: "http://localhost:9000",
+        username: "SlimpMP3",
+        password: "hiwiccp",
+        playerName: "My Player",
+        token: "test-token",
+        playerId: "02:00:00:aa:bb:cc",
+      },
+      "playlistcontrol",
+      ["cmd:load", "track_id:123"],
+    );
+  });
+
+  it("queues browse item next via playlistcontrol insert command", async () => {
+    const { lmsConnection, mockPlayerCommand } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.addNextBrowseItem("track:456");
+
+    expect(mockPlayerCommand).toHaveBeenCalledWith(
+      {
+        serverUrl: "http://localhost:9000",
+        username: "SlimpMP3",
+        password: "hiwiccp",
+        playerName: "My Player",
+        token: "test-token",
+        playerId: "02:00:00:aa:bb:cc",
+      },
+      "playlistcontrol",
+      ["cmd:insert", "track_id:456"],
+    );
+  });
+
+  it("queues browse item at end via playlistcontrol add command", async () => {
+    const { lmsConnection, mockPlayerCommand } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.addToEndBrowseItem("track:789");
+
+    expect(mockPlayerCommand).toHaveBeenCalledWith(
+      {
+        serverUrl: "http://localhost:9000",
+        username: "SlimpMP3",
+        password: "hiwiccp",
+        playerName: "My Player",
+        token: "test-token",
+        playerId: "02:00:00:aa:bb:cc",
+      },
+      "playlistcontrol",
+      ["cmd:add", "track_id:789"],
+    );
+  });
+
+  it("sets auth error state when LMS command returns 401", async () => {
+    const { lmsConnection, mockPlayerCommand } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "bad-password",
+      "My Player",
+    );
+
+    mockPlayerCommand.mockRejectedValueOnce(
+      new Error("LMS JSON-RPC failed with status 401"),
+    );
+
+    lmsConnection.play();
+    await Promise.resolve();
+
+    expect(lmsConnection.getState()).toEqual(
+      expect.objectContaining({
+        status: CONNECTION_STATUS_VALUES.ERROR,
+        error:
+          "LMS authentication failed (401). Reconnect and enter valid LMS credentials.",
+      }),
+    );
+  });
+
+  it("keeps the current stream URL when a stop event arrives before the next stream", async () => {
+    const { lmsConnection, mockOpenEventStream } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const onEvent = mockOpenEventStream.mock.calls[0]?.[1] as
+      | ((event: { type: string; url?: string; mimeType?: string }) => void)
+      | undefined;
+
+    expect(onEvent).toBeTypeOf("function");
+
+    onEvent?.({
+      type: "stream",
+      url: "http://localhost:5174/api/stream?token=test-token&rev=1",
+      mimeType: "audio/mpeg",
+    });
+
+    onEvent?.({ type: "stop" });
+
+    expect(lmsConnection.getState()).toEqual(
+      expect.objectContaining({
+        streamUrl: "http://localhost:5174/api/stream?token=test-token&rev=1",
+        playbackStatus: "stopped",
+      }),
+    );
   });
 });

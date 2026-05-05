@@ -3,7 +3,11 @@
  * Manages this PWA's registration as a Squeezebox player via the local bridge
  */
 
-import { bridgeClient, type PlayerEvent } from "./bridge-client";
+import {
+  bridgeClient,
+  type BrowseResult,
+  type PlayerEvent,
+} from "./bridge-client";
 import { storage } from "./storage";
 import type { ConnectionStatus, ServerUrl, ButtonCommand } from "@utils/types";
 import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
@@ -34,6 +38,11 @@ export interface ConnectionState {
   duration?: number;
 }
 
+type PersistedBrowseCache = {
+  staleMarker: number;
+  entries: Record<string, BrowseResult>;
+};
+
 class LmsConnectionService {
   private state: ConnectionState = { status: CONNECTION_STATUS_VALUES.IDLE };
   private localPauseOverride = false;
@@ -47,11 +56,21 @@ class LmsConnectionService {
   private unsubscribeEvents: (() => void) | null = null;
   private listeners: Set<(state: ConnectionState) => void> = new Set();
 
+  private browseCache = new Map<
+    string,
+    { generation: number; result: BrowseResult }
+  >();
+  private browseCacheGeneration = 0;
+  private browseCacheContext: string | null = null;
+
+  private static readonly BROWSE_CACHE_STALE_KEY = "browseCacheStaleMarker";
+
   async connect(
     serverUrl: string,
     username?: string,
     password?: string,
     playerName = "Squeezebox PWA",
+    rememberPassword = false,
   ): Promise<void> {
     try {
       const validatedUrl = makeServerUrl(serverUrl);
@@ -74,9 +93,15 @@ class LmsConnectionService {
         playerName,
       };
       this.sessionToken = token;
-      storage.saveServerConfig(serverUrl, username, password, playerName);
+      this.initializeBrowseCache(validatedUrl, mac);
+      storage.saveServerConfig(
+        serverUrl,
+        username,
+        password,
+        playerName,
+        rememberPassword,
+      );
 
-      // Open SSE stream for push events from LMS
       if (this.unsubscribeEvents) this.unsubscribeEvents();
       this.unsubscribeEvents = bridgeClient.openEventStream(token, (event) => {
         this.handlePlayerEvent(event);
@@ -105,6 +130,8 @@ class LmsConnectionService {
     }
     this.credentials = null;
     this.sessionToken = null;
+    this.browseCache.clear();
+    this.browseCacheContext = null;
     this.setState({ status: CONNECTION_STATUS_VALUES.IDLE });
   }
 
@@ -116,8 +143,30 @@ class LmsConnectionService {
     return this.state.status === CONNECTION_STATUS_VALUES.CONNECTED;
   }
 
+  trackEnded(): void {
+    if (!this.sessionToken) return;
+    bridgeClient.trackDone(this.sessionToken).catch(console.error);
+  }
+
+  private handleCommandError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const isAuthFailure = /status\s+401/.test(message);
+
+    if (isAuthFailure) {
+      this.setState({
+        status: CONNECTION_STATUS_VALUES.ERROR,
+        error:
+          "LMS authentication failed (401). Reconnect and enter valid LMS credentials.",
+      });
+      return;
+    }
+
+    console.error(error);
+  }
+
   play(): void {
     if (!this.credentials || !this.state.playerId) return;
+    const previousPlaybackStatus = this.state.playbackStatus;
     this.localPauseOverride = false;
     this.setState({ playbackStatus: "playing" });
     bridgeClient
@@ -130,11 +179,15 @@ class LmsConnectionService {
         "pause",
         [0],
       )
-      .catch(console.error);
+      .catch((error) => {
+        this.setState({ playbackStatus: previousPlaybackStatus });
+        this.handleCommandError(error);
+      });
   }
 
   pause(): void {
     if (!this.credentials || !this.state.playerId) return;
+    const previousPlaybackStatus = this.state.playbackStatus;
     this.localPauseOverride = true;
     this.setState({ playbackStatus: "paused" });
     bridgeClient
@@ -147,7 +200,10 @@ class LmsConnectionService {
         "pause",
         [1],
       )
-      .catch(console.error);
+      .catch((error) => {
+        this.setState({ playbackStatus: previousPlaybackStatus });
+        this.handleCommandError(error);
+      });
   }
 
   togglePause(): void {
@@ -179,7 +235,7 @@ class LmsConnectionService {
         "playlist",
         args,
       )
-      .catch(console.error);
+      .catch((error) => this.handleCommandError(error));
   }
 
   setVolume(level: number): void {
@@ -195,7 +251,7 @@ class LmsConnectionService {
         "mixer",
         ["volume", clampedLevel],
       )
-      .catch(console.error);
+      .catch((error) => this.handleCommandError(error));
   }
 
   seekTo(seconds: number): void {
@@ -214,7 +270,7 @@ class LmsConnectionService {
         "time",
         [clampedSeconds],
       )
-      .catch(console.error);
+      .catch((error) => this.handleCommandError(error));
   }
 
   onStateChange(listener: (state: ConnectionState) => void): () => void {
@@ -222,6 +278,233 @@ class LmsConnectionService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  async browseMenu(options?: {
+    itemId?: string;
+    start?: number;
+    quantity?: number;
+    search?: string;
+    forceRefresh?: boolean;
+  }): Promise<BrowseResult> {
+    if (!this.credentials || !this.state.playerId) {
+      throw new Error("Not connected");
+    }
+
+    const normalizedOptions = {
+      itemId: options?.itemId,
+      start: options?.start ?? 0,
+      quantity: options?.quantity ?? 100,
+      search: options?.search,
+    };
+
+    const cacheKey = JSON.stringify(normalizedOptions);
+    const cached = this.browseCache.get(cacheKey);
+    if (
+      !options?.forceRefresh &&
+      cached &&
+      cached.generation === this.browseCacheGeneration
+    ) {
+      return cached.result;
+    }
+
+    const result = await bridgeClient.browse(
+      {
+        ...this.credentials,
+        token: this.sessionToken ?? undefined,
+        playerId: this.state.playerId,
+      },
+      normalizedOptions,
+    );
+
+    this.browseCache.set(cacheKey, {
+      generation: this.browseCacheGeneration,
+      result,
+    });
+    this.persistBrowseCache();
+
+    return result;
+  }
+
+  async playBrowseItem(itemId: string): Promise<void> {
+    if (!this.credentials || !this.state.playerId) {
+      throw new Error("Not connected");
+    }
+
+    const trimmedItemId = itemId.trim();
+    if (!trimmedItemId) {
+      throw new Error("Missing browse item id");
+    }
+
+    const browseArgs = this.getBrowsePlaylistControlArgs("load", trimmedItemId);
+
+    await bridgeClient.playerCommand(
+      {
+        ...this.credentials,
+        token: this.sessionToken ?? undefined,
+        playerId: this.state.playerId,
+      },
+      "playlistcontrol",
+      browseArgs,
+    );
+  }
+
+  async addNextBrowseItem(itemId: string): Promise<void> {
+    if (!this.credentials || !this.state.playerId) {
+      throw new Error("Not connected");
+    }
+
+    const trimmedItemId = itemId.trim();
+    if (!trimmedItemId) {
+      throw new Error("Missing browse item id");
+    }
+
+    const browseArgs = this.getBrowsePlaylistControlArgs(
+      "insert",
+      trimmedItemId,
+    );
+
+    await bridgeClient.playerCommand(
+      {
+        ...this.credentials,
+        token: this.sessionToken ?? undefined,
+        playerId: this.state.playerId,
+      },
+      "playlistcontrol",
+      browseArgs,
+    );
+  }
+
+  async addToEndBrowseItem(itemId: string): Promise<void> {
+    if (!this.credentials || !this.state.playerId) {
+      throw new Error("Not connected");
+    }
+
+    const trimmedItemId = itemId.trim();
+    if (!trimmedItemId) {
+      throw new Error("Missing browse item id");
+    }
+
+    const browseArgs = this.getBrowsePlaylistControlArgs("add", trimmedItemId);
+
+    await bridgeClient.playerCommand(
+      {
+        ...this.credentials,
+        token: this.sessionToken ?? undefined,
+        playerId: this.state.playerId,
+      },
+      "playlistcontrol",
+      browseArgs,
+    );
+  }
+
+  private getBrowsePlaylistControlArgs(
+    command: "load" | "insert" | "add",
+    itemId: string,
+  ): string[] {
+    const separatorIndex = itemId.indexOf(":");
+    const kind = separatorIndex > 0 ? itemId.slice(0, separatorIndex) : "item";
+    const value =
+      separatorIndex > 0 ? itemId.slice(separatorIndex + 1) : itemId;
+
+    if (!value) {
+      throw new Error("Missing browse item id");
+    }
+
+    switch (kind) {
+      case "track":
+        return [`cmd:${command}`, `track_id:${value}`];
+      case "album":
+        return [`cmd:${command}`, `album_id:${value}`];
+      case "artist":
+        return [`cmd:${command}`, `artist_id:${value}`];
+      case "genre":
+        return [`cmd:${command}`, `genre_id:${value}`];
+      case "year":
+        return [`cmd:${command}`, `year:${value}`];
+      case "playlist":
+        return [`cmd:${command}`, `playlist_id:${value}`];
+      case "folder":
+        return [`cmd:${command}`, `folder_id:${value}`];
+      case "section":
+        throw new Error("Browse section cannot be queued");
+      default:
+        return [`cmd:${command}`, `item_id:${value}`];
+    }
+  }
+
+  markBrowseCacheStale(): void {
+    this.browseCacheGeneration += 1;
+    storage.set(
+      LmsConnectionService.BROWSE_CACHE_STALE_KEY,
+      this.browseCacheGeneration,
+    );
+
+    if (this.browseCacheContext) {
+      storage.remove(this.getBrowseCacheStorageKey(this.browseCacheContext));
+    }
+
+    this.browseCache.clear();
+  }
+
+  clearBrowseCache(): void {
+    if (this.browseCacheContext) {
+      storage.remove(this.getBrowseCacheStorageKey(this.browseCacheContext));
+    }
+
+    this.browseCache.clear();
+    this.browseCacheGeneration = 0;
+    storage.set(LmsConnectionService.BROWSE_CACHE_STALE_KEY, 0);
+  }
+
+  private initializeBrowseCache(serverUrl: string, playerId: string): void {
+    this.browseCache.clear();
+    this.browseCacheContext = this.getBrowseCacheContext(serverUrl, playerId);
+
+    this.browseCacheGeneration =
+      storage.get<number>(LmsConnectionService.BROWSE_CACHE_STALE_KEY, 0) ?? 0;
+
+    const persisted = storage.get<PersistedBrowseCache>(
+      this.getBrowseCacheStorageKey(this.browseCacheContext),
+    );
+
+    if (!persisted || persisted.staleMarker !== this.browseCacheGeneration) {
+      return;
+    }
+
+    for (const [key, result] of Object.entries(persisted.entries)) {
+      this.browseCache.set(key, {
+        generation: this.browseCacheGeneration,
+        result,
+      });
+    }
+  }
+
+  private persistBrowseCache(): void {
+    if (!this.browseCacheContext) return;
+
+    const entries: Record<string, BrowseResult> = {};
+    for (const [key, value] of this.browseCache.entries()) {
+      entries[key] = value.result;
+    }
+
+    const payload: PersistedBrowseCache = {
+      staleMarker: this.browseCacheGeneration,
+      entries,
+    };
+
+    storage.set(
+      this.getBrowseCacheStorageKey(this.browseCacheContext),
+      payload,
+    );
+  }
+
+  private getBrowseCacheContext(serverUrl: string, playerId: string): string {
+    return `${serverUrl}::${playerId}`;
+  }
+
+  private getBrowseCacheStorageKey(context: string): string {
+    return `browseCache_${encodeURIComponent(context)}`;
   }
 
   private handlePlayerEvent(event: PlayerEvent): void {
@@ -239,7 +522,7 @@ class LmsConnectionService {
         break;
       case "stop":
         this.localPauseOverride = false;
-        this.setState({ streamUrl: undefined, playbackStatus: "stopped" });
+        this.setState({ playbackStatus: "stopped" });
         break;
       case "volume":
         this.setState({ volume: event.level });
@@ -284,11 +567,14 @@ class LmsConnectionService {
     const config = storage.getServerConfig();
     if (!config) return false;
 
-    // Retrieve the session-scoped password (survives reload, cleared on browser close).
     const password = storage.getSessionPassword();
 
-    // If no password is available and LMS requires auth, silently fail so the
-    // login dialog is shown instead of connecting with broken credentials.
+    // If a username is configured but no session password is available,
+    // avoid reconnecting with incomplete credentials that will 401 on control calls.
+    if (config.username && !password) {
+      return false;
+    }
+
     try {
       await this.connect(
         config.serverUrl,

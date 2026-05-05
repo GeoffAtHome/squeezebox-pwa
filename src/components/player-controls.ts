@@ -10,6 +10,8 @@ import { BUTTON_COMMAND_VALUES } from "@utils/types";
 
 @customElement("player-controls")
 export class PlayerControls extends LitElement {
+  private static readonly TRACK_DONE_FALLBACK_DELAY_MS = 1500;
+
   @state()
   connectionState: ConnectionState = lmsConnection.getState();
 
@@ -31,6 +33,9 @@ export class PlayerControls extends LitElement {
 
   private unsubscribeConnection: (() => void) | null = null;
   private elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  private trackDoneFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingAutoplayRetry = false;
+  private reportedTrackEndForUrl: string | null = null;
 
   // After a seek, LMS restarts the stream so audio.currentTime resets to 0.
   // We track the seek target and the audio.currentTime baseline at the moment
@@ -288,6 +293,105 @@ export class PlayerControls extends LitElement {
       clearInterval(this.elapsedTimer);
       this.elapsedTimer = null;
     }
+    this.clearTrackDoneFallback();
+    this.removeAutoplayRetryListeners();
+  }
+
+  private retryPlaybackOnInteraction = (): void => {
+    this.pendingAutoplayRetry = false;
+    this.removeAutoplayRetryListeners();
+    this.audioEl?.play().catch(() => {
+      // Keep silent; user can explicitly press play.
+    });
+  };
+
+  private addAutoplayRetryListeners(): void {
+    window.addEventListener("pointerdown", this.retryPlaybackOnInteraction, {
+      once: true,
+      capture: true,
+    });
+    window.addEventListener("keydown", this.retryPlaybackOnInteraction, {
+      once: true,
+      capture: true,
+    });
+  }
+
+  private removeAutoplayRetryListeners(): void {
+    window.removeEventListener("pointerdown", this.retryPlaybackOnInteraction, {
+      capture: true,
+    });
+    window.removeEventListener("keydown", this.retryPlaybackOnInteraction, {
+      capture: true,
+    });
+  }
+
+  private requestAudioPlay(): void {
+    this.audioEl.play().catch((error: unknown) => {
+      const message = error instanceof Error ? error.name : String(error ?? "");
+
+      if (/NotAllowedError/i.test(message)) {
+        if (!this.pendingAutoplayRetry) {
+          this.pendingAutoplayRetry = true;
+          this.addAutoplayRetryListeners();
+        }
+        return;
+      }
+
+      console.error(error);
+    });
+  }
+
+  private clearTrackDoneFallback(): void {
+    if (!this.trackDoneFallbackTimer) return;
+    clearTimeout(this.trackDoneFallbackTimer);
+    this.trackDoneFallbackTimer = null;
+  }
+
+  private scheduleTrackDoneFallback(streamUrl: string): void {
+    this.clearTrackDoneFallback();
+
+    this.trackDoneFallbackTimer = setTimeout(() => {
+      this.trackDoneFallbackTimer = null;
+
+      // If a new stream arrived, this fallback is stale.
+      if (this.connectionState.streamUrl !== streamUrl) return;
+
+      // Fallback for browsers/devices that miss HTMLMediaElement ended/pause near-end.
+      if (this.connectionState.playbackStatus === "stopped") {
+        this.reportTrackEndedOnce();
+      }
+    }, PlayerControls.TRACK_DONE_FALLBACK_DELAY_MS);
+  }
+
+  private isNearTrackEnd(): boolean {
+    if (!this.audioEl) return false;
+
+    const duration =
+      Number.isFinite(this.audioEl.duration) && this.audioEl.duration > 0
+        ? this.audioEl.duration
+        : this.localDuration > 0
+          ? this.localDuration
+          : (this.connectionState.duration ?? 0);
+    const elapsed = Number.isFinite(this.audioEl.currentTime)
+      ? this.audioEl.currentTime
+      : this.localElapsed > 0
+        ? this.localElapsed
+        : (this.connectionState.elapsed ?? 0);
+
+    return (
+      Number.isFinite(duration) &&
+      duration > 0 &&
+      Number.isFinite(elapsed) &&
+      elapsed >= Math.max(0, duration - 1)
+    );
+  }
+
+  private reportTrackEndedOnce(): void {
+    const streamUrl = this.connectionState.streamUrl;
+    if (!streamUrl || this.reportedTrackEndForUrl === streamUrl) return;
+
+    this.reportedTrackEndForUrl = streamUrl;
+    lmsConnection.trackEnded();
   }
 
   private syncAudio(prev: ConnectionState, next: ConnectionState): void {
@@ -295,24 +399,39 @@ export class PlayerControls extends LitElement {
 
     // New stream URL → load and play; reset seek tracking
     if (next.streamUrl && next.streamUrl !== prev.streamUrl) {
+      this.clearTrackDoneFallback();
+      this.pendingAutoplayRetry = false;
+      this.removeAutoplayRetryListeners();
+      this.reportedTrackEndForUrl = null;
       this.audioEl.src = next.streamUrl;
       this.transportStatus = "buffering";
       this.localElapsed = 0;
       this.localDuration = 0;
       this.seekOffset = 0;
       this.audioBase = 0;
-      this.audioEl.play().catch(console.error);
+      this.requestAudioPlay();
       return;
     }
 
     if (next.playbackStatus !== prev.playbackStatus) {
       if (next.playbackStatus === "playing") {
+        this.clearTrackDoneFallback();
         this.transportStatus = "buffering";
-        this.audioEl.play().catch(console.error);
+        this.requestAudioPlay();
       } else if (
         next.playbackStatus === "paused" ||
         next.playbackStatus === "stopped"
       ) {
+        if (next.playbackStatus === "stopped" && next.streamUrl) {
+          if (this.isNearTrackEnd()) {
+            this.reportTrackEndedOnce();
+          } else {
+            this.scheduleTrackDoneFallback(next.streamUrl);
+          }
+        } else if (next.playbackStatus === "paused") {
+          this.clearTrackDoneFallback();
+        }
+
         this.transportStatus = next.playbackStatus;
         this.audioEl.pause();
       }
@@ -321,9 +440,33 @@ export class PlayerControls extends LitElement {
     if (next.volume !== undefined && next.volume !== prev.volume) {
       this.audioEl.volume = next.volume / 100;
     }
+
+    // Some environments repeatedly publish stopped state without a clear
+    // playing->stopped transition. Keep a fallback armed for active streams.
+    if (
+      next.playbackStatus === "stopped" &&
+      next.streamUrl &&
+      (!prev.streamUrl || next.streamUrl === prev.streamUrl) &&
+      this.reportedTrackEndForUrl !== next.streamUrl
+    ) {
+      this.scheduleTrackDoneFallback(next.streamUrl);
+    }
   }
 
   private handlePlayPause = () => {
+    if (this.transportStatus === "buffering") {
+      this.requestAudioPlay();
+      return;
+    }
+
+    if (
+      this.pendingAutoplayRetry &&
+      this.connectionState.playbackStatus === "playing"
+    ) {
+      this.requestAudioPlay();
+      return;
+    }
+
     lmsConnection.togglePause();
   };
 
@@ -371,10 +514,18 @@ export class PlayerControls extends LitElement {
   private handleAudioPause = () => {
     this.transportStatus =
       this.connectionState.playbackStatus === "stopped" ? "stopped" : "paused";
+
+    if (
+      this.connectionState.playbackStatus !== "paused" &&
+      this.isNearTrackEnd()
+    ) {
+      this.reportTrackEndedOnce();
+    }
   };
 
   private handleAudioEnded = () => {
     this.transportStatus = "stopped";
+    this.reportTrackEndedOnce();
   };
 
   private formatTime(seconds: number): string {
