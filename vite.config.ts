@@ -3,6 +3,7 @@ import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
   root: "src",
+  envDir: "..",
   resolve: {
     alias: {
       "@components": fileURLToPath(

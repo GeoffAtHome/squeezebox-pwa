@@ -43,6 +43,7 @@ class LmsConnectionService {
     password?: string;
     playerName: string;
   } | null = null;
+  private sessionToken: string | null = null;
   private unsubscribeEvents: (() => void) | null = null;
   private listeners: Set<(state: ConnectionState) => void> = new Set();
 
@@ -72,6 +73,7 @@ class LmsConnectionService {
         password,
         playerName,
       };
+      this.sessionToken = token;
       storage.saveServerConfig(serverUrl, username, password, playerName);
 
       // Open SSE stream for push events from LMS
@@ -102,6 +104,7 @@ class LmsConnectionService {
       this.unsubscribeEvents = null;
     }
     this.credentials = null;
+    this.sessionToken = null;
     this.setState({ status: CONNECTION_STATUS_VALUES.IDLE });
   }
 
@@ -119,7 +122,11 @@ class LmsConnectionService {
     this.setState({ playbackStatus: "playing" });
     bridgeClient
       .playerCommand(
-        { ...this.credentials, playerId: this.state.playerId },
+        {
+          ...this.credentials,
+          token: this.sessionToken ?? undefined,
+          playerId: this.state.playerId,
+        },
         "pause",
         [0],
       )
@@ -132,7 +139,11 @@ class LmsConnectionService {
     this.setState({ playbackStatus: "paused" });
     bridgeClient
       .playerCommand(
-        { ...this.credentials, playerId: this.state.playerId },
+        {
+          ...this.credentials,
+          token: this.sessionToken ?? undefined,
+          playerId: this.state.playerId,
+        },
         "pause",
         [1],
       )
@@ -160,7 +171,11 @@ class LmsConnectionService {
 
     bridgeClient
       .playerCommand(
-        { ...this.credentials, playerId: this.state.playerId },
+        {
+          ...this.credentials,
+          token: this.sessionToken ?? undefined,
+          playerId: this.state.playerId,
+        },
         "playlist",
         args,
       )
@@ -172,7 +187,11 @@ class LmsConnectionService {
     const clampedLevel = Math.max(0, Math.min(100, Math.round(level)));
     bridgeClient
       .playerCommand(
-        { ...this.credentials, playerId: this.state.playerId },
+        {
+          ...this.credentials,
+          token: this.sessionToken ?? undefined,
+          playerId: this.state.playerId,
+        },
         "mixer",
         ["volume", clampedLevel],
       )
@@ -187,7 +206,11 @@ class LmsConnectionService {
 
     bridgeClient
       .playerCommand(
-        { ...this.credentials, playerId: this.state.playerId },
+        {
+          ...this.credentials,
+          token: this.sessionToken ?? undefined,
+          playerId: this.state.playerId,
+        },
         "time",
         [clampedSeconds],
       )
@@ -261,11 +284,16 @@ class LmsConnectionService {
     const config = storage.getServerConfig();
     if (!config) return false;
 
+    // Retrieve the session-scoped password (survives reload, cleared on browser close).
+    const password = storage.getSessionPassword();
+
+    // If no password is available and LMS requires auth, silently fail so the
+    // login dialog is shown instead of connecting with broken credentials.
     try {
       await this.connect(
         config.serverUrl,
         config.username,
-        undefined,
+        password,
         config.playerName,
       );
       return true;

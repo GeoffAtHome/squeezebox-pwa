@@ -47,6 +47,13 @@ sw.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Ignore cross-origin requests (bridge SSE/API/stream traffic)
+  // so browser networking handles CORS and streaming natively.
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== sw.location.origin) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((response) => {
       if (response) {

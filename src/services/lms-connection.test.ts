@@ -15,6 +15,7 @@ const loadSubject = async (options?: {
   const getServerConfig = vi
     .fn()
     .mockReturnValue(options?.storedConfig ?? null);
+  const getSessionPassword = vi.fn().mockReturnValue(undefined);
 
   const mockRegisterPlayer = vi.fn().mockResolvedValue({
     token: "test-token",
@@ -36,6 +37,7 @@ const loadSubject = async (options?: {
     storage: {
       saveServerConfig,
       getServerConfig,
+      getSessionPassword,
     },
   }));
 

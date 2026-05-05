@@ -5,6 +5,7 @@ import {
 } from "node:http";
 import { createConnection, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import {
   buildHelo,
   buildStat,
@@ -26,6 +27,12 @@ type SlimCmd = {
   data: Buffer;
 };
 
+type StreamSource = {
+  url: string;
+  headers: Record<string, string>;
+  mimeType: string;
+};
+
 type Session = {
   token: string;
   config: BridgeConfig;
@@ -38,6 +45,7 @@ type Session = {
   metadataTimer: ReturnType<typeof setInterval> | null;
   /** Timer to defer TCP teardown when SSE disconnects — allows reconnect */
   sseCleanupTimer: ReturnType<typeof setTimeout> | null;
+  currentStream: StreamSource | null;
 };
 
 type RequestPayload = Record<string, unknown>;
@@ -59,7 +67,8 @@ const DEFAULT_PASSWORD = process.env.VITE_LMS_PASSWORD;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, Cache-Control, Pragma, Last-Event-ID",
 };
 
 // ── Session store ─────────────────────────────────────────────────────────────
@@ -93,6 +102,22 @@ const emitSessionEvent = (session: Session, event: unknown): void => {
   }
 };
 
+const buildSessionUrl = (
+  path: string,
+  params: Record<string, string | number | undefined>,
+): string => {
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      searchParams.set(key, String(value));
+    }
+  }
+
+  const query = searchParams.toString();
+  return query ? `${path}?${query}` : path;
+};
+
 type LmsStatusResponse = {
   mode?: string;
   "mixer volume"?: string | number;
@@ -122,24 +147,35 @@ const buildArtworkProxyUrl = (
     coverid?: string | number;
   },
 ): string | undefined => {
-  const tokenParam = encodeURIComponent(session.token);
-
   if (current?.coverid !== undefined && current.coverid !== null) {
-    return `http://localhost:${BRIDGE_PORT}/api/artwork?token=${tokenParam}&coverid=${encodeURIComponent(String(current.coverid))}`;
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      coverid: String(current.coverid),
+    });
   }
 
   if (current?.id !== undefined && current.id !== null) {
-    return `http://localhost:${BRIDGE_PORT}/api/artwork?token=${tokenParam}&trackId=${encodeURIComponent(String(current.id))}`;
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      trackId: String(current.id),
+    });
   }
 
-  return `http://localhost:${BRIDGE_PORT}/api/artwork?token=${tokenParam}&player=${encodeURIComponent(session.mac)}`;
+  return buildSessionUrl("/api/artwork", {
+    token: session.token,
+    player: session.mac,
+  });
 };
+
+const buildStreamProxyUrl = (session: Session): string =>
+  buildSessionUrl("/api/stream", { token: session.token });
 
 const refreshPlayerStatus = async (session: Session): Promise<void> => {
   try {
     const status = await callJsonRpc<LmsStatusResponse>(session.config, [
       session.mac,
-      ["status", "-", 1, "tags:adKlRut"],
+      // tags: a=artist, d=duration, K=artwork_url, l=album, c=coverid, e=album_id, t=tracknum
+      ["status", "-", 1, "tags:adKlcet"],
     ]);
 
     const current = status.playlist_loop?.[0];
@@ -175,8 +211,13 @@ const refreshPlayerStatus = async (session: Session): Promise<void> => {
       elapsed: Number.isFinite(elapsed) ? Math.max(0, elapsed) : undefined,
       duration: Number.isFinite(duration) ? Math.max(0, duration) : undefined,
     });
-  } catch {
-    // Avoid tearing down the session if metadata polling fails transiently.
+  } catch (err) {
+    // Log errors so bridge operator can diagnose credential/network issues.
+    // Do NOT tear down the session — polling will retry on the next interval.
+    console.error(
+      `[bridge] metadata poll failed for ${session.mac}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 };
 
@@ -241,8 +282,29 @@ const handleLmsCommand = (cmd: SlimCmd, session: Session): void => {
           : Array.from(serverIpBytes).join(".");
 
         const httpHeader = data.subarray(24).toString("ascii");
-        const pathMatch = httpHeader.match(/^GET ([^\s\r\n]+)/);
+        const requestLines = httpHeader
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const pathMatch = requestLines[0]?.match(/^GET ([^\s\r\n]+)/);
         const path = pathMatch?.[1] ?? "/";
+        const requestHeaders = requestLines
+          .slice(1)
+          .reduce<Record<string, string>>((headers, line) => {
+            const separatorIndex = line.indexOf(":");
+            if (separatorIndex <= 0) {
+              return headers;
+            }
+
+            const name = line.slice(0, separatorIndex).trim();
+            const value = line.slice(separatorIndex + 1).trim();
+            if (!name || !value || /^host$/i.test(name)) {
+              return headers;
+            }
+
+            headers[name] = value;
+            return headers;
+          }, {});
 
         const formatByte = String.fromCharCode(data[2]);
         const mimeByFormat: Record<string, string> = {
@@ -254,9 +316,17 @@ const handleLmsCommand = (cmd: SlimCmd, session: Session): void => {
           l: "audio/alac",
         };
         const mimeType = mimeByFormat[formatByte] ?? "audio/mpeg";
-        const streamUrl = `http://${serverIp}:${serverPort}${path}`;
+        session.currentStream = {
+          url: `http://${serverIp}:${serverPort}${path}`,
+          headers: requestHeaders,
+          mimeType,
+        };
 
-        emitSessionEvent(session, { type: "stream", url: streamUrl, mimeType });
+        emitSessionEvent(session, {
+          type: "stream",
+          url: buildStreamProxyUrl(session),
+          mimeType,
+        });
         session.socket?.write(buildStat("STMc"));
         void refreshPlayerStatus(session);
       } else if (strmCmd === "p") {
@@ -268,6 +338,7 @@ const handleLmsCommand = (cmd: SlimCmd, session: Session): void => {
         session.socket?.write(buildStat("STMr"));
         void refreshPlayerStatus(session);
       } else if (strmCmd === "q" || strmCmd === "f") {
+        session.currentStream = null;
         emitSessionEvent(session, { type: "stop" });
         session.socket?.write(buildStat("STMf"));
         void refreshPlayerStatus(session);
@@ -562,6 +633,66 @@ const proxyArtwork = async (
   res.end(imageBuffer);
 };
 
+const proxyStream = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  session: Session,
+): Promise<void> => {
+  if (!session.currentStream) {
+    sendJson(res, 409, { error: "No active stream" });
+    return;
+  }
+
+  const controller = new AbortController();
+  req.on("close", () => {
+    controller.abort();
+  });
+
+  try {
+    const upstreamHeaders = new Headers(session.currentStream.headers);
+    if (typeof req.headers.range === "string") {
+      upstreamHeaders.set("Range", req.headers.range);
+    }
+
+    const response = await fetch(session.currentStream.url, {
+      method: "GET",
+      headers: upstreamHeaders,
+      redirect: "follow",
+      signal: controller.signal,
+    });
+
+    if (!response.ok || !response.body) {
+      sendJson(res, response.status || 502, { error: "Stream unavailable" });
+      return;
+    }
+
+    const headers: Record<string, string> = {
+      ...corsHeaders,
+      "Content-Type":
+        response.headers.get("content-type") ?? session.currentStream.mimeType,
+      "Cache-Control": "no-store",
+    };
+
+    for (const name of ["accept-ranges", "content-length", "content-range"]) {
+      const value = response.headers.get(name);
+      if (value) {
+        headers[name] = value;
+      }
+    }
+
+    res.writeHead(response.status, headers);
+    Readable.fromWeb(response.body as any).pipe(res);
+  } catch (error) {
+    if (controller.signal.aborted || res.writableEnded) {
+      return;
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unknown stream proxy error";
+    sendJson(res, 502, { error: message });
+  }
+};
+
 const callJsonRpc = async <T>(
   config: BridgeConfig,
   params: unknown[],
@@ -624,6 +755,26 @@ const handleRequest = async (
       trackId: params.get("trackId") ?? undefined,
       player: params.get("player") ?? undefined,
     });
+    return;
+  }
+
+  // GET /api/stream?token=...
+  if (req.method === "GET" && req.url.startsWith("/api/stream")) {
+    const token = new URL(req.url, "http://localhost").searchParams.get(
+      "token",
+    );
+    if (!token) {
+      sendJson(res, 400, { error: "Missing token" });
+      return;
+    }
+
+    const session = sessions.get(token);
+    if (!session) {
+      sendJson(res, 404, { error: "Session not found or expired" });
+      return;
+    }
+
+    await proxyStream(req, res, session);
     return;
   }
 
@@ -731,6 +882,7 @@ const handleRequest = async (
         heartbeatTimer: null,
         metadataTimer: null,
         sseCleanupTimer: null,
+        currentStream: null,
       };
 
       // Open TCP to LMS and wait for first response (confirms registration)
@@ -745,27 +897,41 @@ const handleRequest = async (
 
     // POST /api/player/command  (play, pause, skip etc. via LMS JSON-RPC)
     if (req.url === "/api/player/command") {
-      const serverUrl = normalizeServerUrl(
-        typeof payload.serverUrl === "string"
-          ? payload.serverUrl
-          : DEFAULT_SERVER_URL,
-      );
-      const username =
-        typeof payload.username === "string"
+      const token =
+        typeof payload.token === "string" ? payload.token : undefined;
+      const session = token ? sessions.get(token) : undefined;
+
+      if (token && !session) {
+        sendJson(res, 404, { error: "Session not found or expired" });
+        return;
+      }
+
+      const serverUrl = session
+        ? session.config.serverUrl
+        : normalizeServerUrl(
+            typeof payload.serverUrl === "string"
+              ? payload.serverUrl
+              : DEFAULT_SERVER_URL,
+          );
+      const username = session
+        ? session.config.username
+        : typeof payload.username === "string"
           ? payload.username
           : DEFAULT_USERNAME;
-      const password =
-        typeof payload.password === "string"
+      const password = session
+        ? session.config.password
+        : typeof payload.password === "string"
           ? payload.password
           : DEFAULT_PASSWORD;
-      const playerName =
-        typeof payload.playerName === "string"
+      const playerName = session
+        ? session.config.playerName
+        : typeof payload.playerName === "string"
           ? payload.playerName
           : "Squeezebox PWA";
       const playerId =
         typeof payload.playerId === "string"
           ? payload.playerId
-          : playerNameToMac(playerName);
+          : (session?.mac ?? playerNameToMac(playerName));
       const command =
         typeof payload.command === "string" ? payload.command : undefined;
       const args = Array.isArray(payload.args) ? payload.args : [];

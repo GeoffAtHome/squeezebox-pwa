@@ -1,0 +1,18 @@
+# Cloudflare Tunnel configuration for Squeezebox PWA bridge
+#
+# Prerequisites:
+#   1. Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+#   2. Authenticate:  cloudflared tunnel login
+#   3. Create tunnel:  cloudflared tunnel create squeezebox-bridge
+#   4. Copy the tunnel ID into the `tunnel:` field below
+#   5. Add a DNS CNAME in Cloudflare dashboard:
+#        squeezebox-bridge.soord.org.uk  →  <tunnel-id>.cfargotunnel.com
+#   6. Run:  cloudflared tunnel --config cloudflared-tunnel.yml run
+
+tunnel: d6d06eac-43d5-4792-bdc8-5fb572aa158b
+credentials-file: .cloudflared\d6d06eac-43d5-4792-bdc8-5fb572aa158b.json
+
+ingress:
+  - hostname: squeezebox-bridge.soord.org.uk
+    service: http://localhost:5174
+  - service: http_status:404

@@ -88,18 +88,38 @@ class StorageService {
   }
 
   /**
-   * Save server configuration to storage
+   * Save server configuration to storage.
+   * The password is stored only in sessionStorage (cleared on browser close)
+   * so it survives page reloads and backgrounding but is never persisted long-term.
    */
   saveServerConfig(
     serverUrl: string,
     username?: string,
-    _password?: string,
+    password?: string,
     playerName?: string,
   ): void {
     this.set("serverUrl", serverUrl);
     if (username) this.set("username", username);
     if (playerName) this.set("playerName", playerName);
-    // Note: passwords are not stored for security reasons
+    // Password lives in sessionStorage only — survives reload, cleared on close.
+    if (password) {
+      try {
+        sessionStorage.setItem(this.prefix + "password", password);
+      } catch {
+        // sessionStorage unavailable — proceed without caching
+      }
+    }
+  }
+
+  /**
+   * Retrieve the session-scoped password (not persisted across browser close).
+   */
+  getSessionPassword(): string | undefined {
+    try {
+      return sessionStorage.getItem(this.prefix + "password") ?? undefined;
+    } catch {
+      return undefined;
+    }
   }
 }
 

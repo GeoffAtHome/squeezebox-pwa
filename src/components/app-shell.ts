@@ -155,7 +155,7 @@ export class AppShell extends LitElement {
         <div class="footer">
           <div class="status">
             ${this.connectionState.status === CONNECTION_STATUS_VALUES.CONNECTED
-              ? `âœ“ Connected as ${this.connectionState.playerId ?? ""}`
+              ? `Connected as ${this.connectionState.playerId ?? ""}`
               : this.connectionState.status ===
                   CONNECTION_STATUS_VALUES.CONNECTING
                 ? "Connecting..."
