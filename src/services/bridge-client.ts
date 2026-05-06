@@ -237,6 +237,19 @@ export class BridgeClient {
   }
 
   /**
+   * Notify the bridge that track playback has started so it can send STMs.
+   */
+  async trackStarted(token: string, elapsedSeconds = 0): Promise<void> {
+    const elapsedMs = Math.max(0, Math.floor(elapsedSeconds * 1000));
+
+    await fetch(`${this.bridgeUrl}/api/player/trackstarted`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, elapsedMs }),
+    });
+  }
+
+  /**
    * Browse LMS library menu for this player session.
    */
   async browse(

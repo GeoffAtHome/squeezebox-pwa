@@ -47,6 +47,7 @@ type Session = {
   sseCleanupTimer: ReturnType<typeof setTimeout> | null;
   currentStream: StreamSource | null;
   streamRevision: number;
+  pendingConnectAckRevision: number | null;
 };
 
 type RequestPayload = Record<string, unknown>;
@@ -828,13 +829,13 @@ const handleLmsCommand = (cmd: SlimCmd, session: Session): void => {
           headers: requestHeaders,
           mimeType,
         };
+        session.pendingConnectAckRevision = session.streamRevision;
 
         emitSessionEvent(session, {
           type: "stream",
           url: buildStreamProxyUrl(session),
           mimeType,
         });
-        session.socket?.write(buildStat("STMc"));
         void refreshPlayerStatus(session);
       } else if (strmCmd === "p") {
         emitSessionEvent(session, { type: "pause" });
@@ -1057,20 +1058,31 @@ const registerWithLms = (session: Session): Promise<void> => {
 };
 
 const scheduleTrackDoneAdvanceFallback = (session: Session): void => {
+  const revisionAtSchedule = session.streamRevision;
+
   setTimeout(() => {
     void (async () => {
       try {
+        // A new stream command already arrived; this fallback is stale.
+        if (session.streamRevision !== revisionAtSchedule) {
+          return;
+        }
+
         const status = await callJsonRpc<LmsStatusResponse>(session.config, [
           session.mac,
           ["status", "-", 1],
         ]);
 
-        // If STMd did not advance playback, nudge LMS to the next queue item
-        // and explicitly resume playback.
-        if (status.mode === "stop") {
+        const mode = String(status.mode ?? "").toLowerCase();
+
+        // If STMd did not leave LMS actively playing, nudge LMS to the next
+        // queue item and explicitly resume playback.
+        if (mode !== "play" && mode !== "playing") {
           logCommand("trackdone fallback advance", {
             playerId: session.mac,
             mode: status.mode,
+            revisionAtSchedule,
+            currentRevision: session.streamRevision,
           });
 
           await callJsonRpc<unknown>(session.config, [
@@ -1208,6 +1220,14 @@ const proxyStream = async (
     if (!response.ok || !response.body) {
       sendJson(res, response.status || 502, { error: "Stream unavailable" });
       return;
+    }
+
+    if (session.pendingConnectAckRevision === session.streamRevision) {
+      session.socket?.write(buildStat("STMc"));
+      // Safety: if the browser never posts /trackstarted (older client build or
+      // suppressed media events), still tell LMS playback started at t=0.
+      session.socket?.write(buildStat("STMs", 0));
+      session.pendingConnectAckRevision = null;
     }
 
     const headers: Record<string, string> = {
@@ -1436,6 +1456,7 @@ const handleRequest = async (
         sseCleanupTimer: null,
         currentStream: null,
         streamRevision: 0,
+        pendingConnectAckRevision: null,
       };
 
       // Open TCP to LMS and wait for first response (confirms registration)
@@ -1658,6 +1679,28 @@ const handleRequest = async (
       return;
     }
 
+    // POST /api/player/trackstarted  — player reports playback started for current stream
+    if (requestPath === "/api/player/trackstarted") {
+      const token =
+        typeof payload.token === "string" ? payload.token : undefined;
+      const session = token ? sessions.get(token) : undefined;
+
+      if (!session) {
+        sendJson(res, 404, { error: "Session not found or expired" });
+        return;
+      }
+
+      const elapsedMs =
+        typeof payload.elapsedMs === "number" &&
+        Number.isFinite(payload.elapsedMs)
+          ? Math.max(0, Math.floor(payload.elapsedMs))
+          : 0;
+
+      session.socket?.write(buildStat("STMs", elapsedMs));
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     logRequest("route not found", {
       method: req.method,
       rawUrl: req.url,
@@ -1710,4 +1753,7 @@ process.on("unhandledRejection", (reason) => {
 
 server.listen(BRIDGE_PORT, () => {
   console.log(`LMS bridge listening on http://localhost:${BRIDGE_PORT}`);
+  console.log(
+    `[bridge] logging flags: requests=${BRIDGE_LOG_REQUESTS ? "on" : "off"}, commands=${BRIDGE_LOG_COMMANDS ? "on" : "off"}`,
+  );
 });

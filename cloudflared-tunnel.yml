@@ -1,18 +1,18 @@
-# Cloudflare Tunnel configuration for Squeezebox PWA bridge
+# Optional template for a self-managed cloudflared tunnel.
 #
-# Prerequisites:
-#   1. Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-#   2. Authenticate:  cloudflared tunnel login
-#   3. Create tunnel:  cloudflared tunnel create squeezebox-bridge
-#   4. Copy the tunnel ID into the `tunnel:` field below
-#   5. Add a DNS CNAME in Cloudflare dashboard:
-#        squeezebox-bridge.soord.org.uk  →  <tunnel-id>.cfargotunnel.com
-#   6. Run:  cloudflared tunnel --config cloudflared-tunnel.yml run
+# If Home Assistant manages your Cloudflare Tunnel, you do not need this file.
+#
+# Steps:
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create squeezebox-bridge
+#   3. Replace the placeholder values below
+#   4. cloudflared tunnel route dns squeezebox-bridge bridge.yourdomain.com
+#   5. cloudflared tunnel --config cloudflared-tunnel.yml run squeezebox-bridge
 
-tunnel: d6d06eac-43d5-4792-bdc8-5fb572aa158b
-credentials-file: .cloudflared\d6d06eac-43d5-4792-bdc8-5fb572aa158b.json
+tunnel: YOUR_TUNNEL_UUID
+credentials-file: C:\Windows\System32\config\systemprofile\.cloudflared\YOUR_TUNNEL_UUID.json
 
 ingress:
-  - hostname: squeezebox-bridge.soord.org.uk
-    service: http://localhost:5174
+  - hostname: bridge.yourdomain.com
+    service: http://127.0.0.1:5174
   - service: http_status:404

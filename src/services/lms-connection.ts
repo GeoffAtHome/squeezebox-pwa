@@ -148,6 +148,13 @@ class LmsConnectionService {
     bridgeClient.trackDone(this.sessionToken).catch(console.error);
   }
 
+  trackStarted(elapsedSeconds = 0): void {
+    if (!this.sessionToken) return;
+    bridgeClient
+      .trackStarted(this.sessionToken, elapsedSeconds)
+      .catch(console.error);
+  }
+
   private handleCommandError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     const isAuthFailure = /status\s+401/.test(message);

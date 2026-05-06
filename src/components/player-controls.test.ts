@@ -12,6 +12,7 @@ vi.mock("@services/lms-connection", () => {
       };
     }),
     trackEnded: vi.fn(),
+    trackStarted: vi.fn(),
     togglePause: vi.fn(),
     sendButton: vi.fn(),
     setVolume: vi.fn(),
@@ -161,5 +162,61 @@ describe("player-controls", () => {
 
     expect((lmsConnection as any).togglePause).not.toHaveBeenCalled();
     expect(playSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports track started once when audio fires playing for a stream", async () => {
+    const element = document.createElement("player-controls");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const emit = (lmsConnection as any).__emit as (state: any) => void;
+
+    emit({
+      status: "connected",
+      playbackStatus: "playing",
+      streamUrl: "/api/stream?token=t&rev=31",
+      volume: 50,
+    });
+
+    const audio = element.shadowRoot?.querySelector("audio") as
+      | HTMLAudioElement
+      | undefined;
+    expect(audio).toBeDefined();
+
+    audio?.dispatchEvent(new Event("playing"));
+    audio?.dispatchEvent(new Event("playing"));
+
+    expect((lmsConnection as any).trackStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports track started again for the next stream revision", async () => {
+    const element = document.createElement("player-controls");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const emit = (lmsConnection as any).__emit as (state: any) => void;
+    const audio = element.shadowRoot?.querySelector("audio") as
+      | HTMLAudioElement
+      | undefined;
+
+    emit({
+      status: "connected",
+      playbackStatus: "playing",
+      streamUrl: "/api/stream?token=t&rev=41",
+      volume: 50,
+    });
+    audio?.dispatchEvent(new Event("playing"));
+
+    emit({
+      status: "connected",
+      playbackStatus: "playing",
+      streamUrl: "/api/stream?token=t&rev=42",
+      volume: 50,
+    });
+    audio?.dispatchEvent(new Event("playing"));
+
+    expect((lmsConnection as any).trackStarted).toHaveBeenCalledTimes(2);
   });
 });

@@ -36,6 +36,7 @@ export class PlayerControls extends LitElement {
   private trackDoneFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingAutoplayRetry = false;
   private reportedTrackEndForUrl: string | null = null;
+  private reportedTrackStartForUrl: string | null = null;
 
   // After a seek, LMS restarts the stream so audio.currentTime resets to 0.
   // We track the seek target and the audio.currentTime baseline at the moment
@@ -394,6 +395,14 @@ export class PlayerControls extends LitElement {
     lmsConnection.trackEnded();
   }
 
+  private reportTrackStartedOnce(): void {
+    const streamUrl = this.connectionState.streamUrl;
+    if (!streamUrl || this.reportedTrackStartForUrl === streamUrl) return;
+
+    this.reportedTrackStartForUrl = streamUrl;
+    lmsConnection.trackStarted(this.audioEl?.currentTime ?? 0);
+  }
+
   private syncAudio(prev: ConnectionState, next: ConnectionState): void {
     if (!this.audioEl) return;
 
@@ -403,6 +412,7 @@ export class PlayerControls extends LitElement {
       this.pendingAutoplayRetry = false;
       this.removeAutoplayRetryListeners();
       this.reportedTrackEndForUrl = null;
+      this.reportedTrackStartForUrl = null;
       this.audioEl.src = next.streamUrl;
       this.transportStatus = "buffering";
       this.localElapsed = 0;
@@ -503,6 +513,7 @@ export class PlayerControls extends LitElement {
 
   private handleAudioPlaying = () => {
     this.transportStatus = "playing";
+    this.reportTrackStartedOnce();
   };
 
   private handleAudioWaiting = () => {

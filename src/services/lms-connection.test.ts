@@ -42,6 +42,7 @@ const loadSubject = async (options?: {
   const mockPlayerCommand = vi.fn().mockResolvedValue(undefined);
   const mockBrowse = vi.fn().mockResolvedValue({ item_loop: [] });
   const mockTrackDone = vi.fn().mockResolvedValue(undefined);
+  const mockTrackStarted = vi.fn().mockResolvedValue(undefined);
 
   vi.doMock("@services/bridge-client", () => ({
     bridgeClient: {
@@ -50,6 +51,7 @@ const loadSubject = async (options?: {
       playerCommand: mockPlayerCommand,
       browse: mockBrowse,
       trackDone: mockTrackDone,
+      trackStarted: mockTrackStarted,
     },
   }));
 
@@ -73,6 +75,7 @@ const loadSubject = async (options?: {
     mockPlayerCommand,
     mockBrowse,
     mockTrackDone,
+    mockTrackStarted,
     saveServerConfig,
     getServerConfig,
     storageSet,
@@ -484,5 +487,21 @@ describe("lmsConnection", () => {
         playbackStatus: "stopped",
       }),
     );
+  });
+
+  it("forwards trackStarted to bridge with elapsed seconds", async () => {
+    const { lmsConnection, mockTrackStarted } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    lmsConnection.trackStarted(12.345);
+    await Promise.resolve();
+
+    expect(mockTrackStarted).toHaveBeenCalledWith("test-token", 12.345);
   });
 });

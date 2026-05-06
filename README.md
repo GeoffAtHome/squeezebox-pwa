@@ -148,29 +148,46 @@ Recommended deployment steps:
 5. Build the frontend with `VITE_BRIDGE_URL=https://bridge.yourdomain.com`.
 6. In the app connection dialog, enter your LMS URL. This should usually be the LMS LAN URL when the bridge is on the same network as LMS.
 
-Example Cloudflare Tunnel ingress for the bridge:
-
-```yaml
-tunnel: squeezebox-bridge
-credentials-file: /etc/cloudflared/squeezebox-bridge.json
-
-ingress:
-  - hostname: bridge.yourdomain.com
-    service: http://localhost:5174
-  - service: http_status:404
-```
-
-Run the bridge and tunnel on the home-network machine:
+If you are starting over, remove the old tunnel before creating a new one:
 
 ```bash
-# Bridge
+# Remove the old local cloudflared service if you created one manually
+cloudflared service uninstall
+
+# Remove the old tunnel from Cloudflare
+cloudflared tunnel delete squeezebox-bridge
+```
+
+Then delete the old DNS record for the bridge hostname in the Cloudflare dashboard. The DNS record is separate from the tunnel, so deleting the tunnel alone does not remove the hostname mapping.
+
+### Recommended: Home Assistant-managed tunnel
+
+If you already use Home Assistant, this is the simplest persistent setup. Let Home Assistant own the Cloudflare Tunnel and keep it running, instead of installing a separate `cloudflared` service on the bridge server.
+
+1. Keep the Squeezebox bridge running on a machine that Home Assistant can reach over your LAN.
+2. In Home Assistant, create or recreate the Cloudflare Tunnel there.
+3. Add a public hostname such as `bridge.yourdomain.com` that forwards to the bridge's LAN endpoint, for example `http://192.168.1.50:5174`.
+4. Build the frontend with `VITE_BRIDGE_URL=https://bridge.yourdomain.com`.
+5. Deploy the frontend to Firebase Hosting.
+
+This removes the need for a separate tunnel service on the bridge machine. Persistence comes from Home Assistant keeping the tunnel alive.
+
+Run the bridge on the home-network machine:
+
+```bash
+# Development-style launch
 npm run bridge:dev
 
 # Or a production-style launch
 node --env-file=.env.local --experimental-strip-types bridge/server.ts
+```
 
-# Tunnel
-cloudflared tunnel run squeezebox-bridge
+### Optional: self-managed cloudflared service
+
+If you do not want Home Assistant to manage the tunnel, use [cloudflared-tunnel.yml](./cloudflared-tunnel.yml) as a template and install `cloudflared` as a service on the server. In that case, use the bridge host's local address as the service target.
+
+```bash
+cloudflared tunnel --config cloudflared-tunnel.yml run YOUR_TUNNEL_NAME
 ```
 
 Notes:
