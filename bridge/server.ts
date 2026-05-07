@@ -352,6 +352,29 @@ const buildBrowseArtworkUrl = (
   return buildArtworkProxyUrl(session, entry);
 };
 
+const normalizeArtworkPath = (
+  artworkUrl: string | undefined,
+  serverUrl: string,
+): string | undefined => {
+  if (typeof artworkUrl !== "string" || artworkUrl.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    const server = new URL(serverUrl);
+    const artwork = new URL(artworkUrl, server);
+    if (artwork.origin !== server.origin) {
+      return undefined;
+    }
+    if (!artwork.pathname.startsWith("/")) {
+      return undefined;
+    }
+    return `${artwork.pathname}${artwork.search}`;
+  } catch {
+    return undefined;
+  }
+};
+
 const browseLibrary = async (
   config: BridgeConfig,
   start: number,
@@ -437,7 +460,7 @@ const browseLibrary = async (
             albums_loop?: LmsBrowseEntry[];
             album_loop?: LmsBrowseEntry[];
             count?: number;
-          }>(config, [0, ["albums", start, quantity, "tags:aljcc"]]);
+          }>(config, [0, ["albums", start, quantity, "tags:aljKce"]]);
 
           return {
             item_loop: mapQueryItems(
@@ -655,7 +678,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `artist_id:${target.value}`, "tags:aljcc"],
+        ["albums", start, quantity, `artist_id:${target.value}`, "tags:aljKce"],
       ]);
 
       return {
@@ -692,7 +715,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `genre_id:${target.value}`, "tags:aljcc"],
+        ["albums", start, quantity, `genre_id:${target.value}`, "tags:aljKce"],
       ]);
 
       return {
@@ -729,7 +752,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `year:${target.value}`, "tags:aljcc"],
+        ["albums", start, quantity, `year:${target.value}`, "tags:aljKce"],
       ]);
 
       return {
@@ -901,6 +924,17 @@ const buildArtworkProxyUrl = (
     coverid?: string | number;
   },
 ): string | undefined => {
+  const artworkPath = normalizeArtworkPath(
+    current?.artwork_url,
+    session.config.serverUrl,
+  );
+  if (artworkPath) {
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      artworkPath,
+    });
+  }
+
   if (current?.coverid !== undefined && current.coverid !== null) {
     return buildSessionUrl("/api/artwork", {
       token: session.token,
@@ -1411,13 +1445,20 @@ const sendNoContent = (res: ServerResponse): void => {
 const proxyArtwork = async (
   res: ServerResponse,
   session: Session,
-  options: { coverid?: string; trackId?: string; player?: string },
+  options: {
+    coverid?: string;
+    trackId?: string;
+    player?: string;
+    artworkPath?: string;
+  },
 ): Promise<void> => {
-  const path = options.coverid
-    ? `/music/${encodeURIComponent(options.coverid)}/cover.jpg`
-    : options.trackId
-      ? `/music/${encodeURIComponent(options.trackId)}/cover.jpg`
-      : `/music/current/cover.jpg?player=${encodeURIComponent(options.player ?? session.mac)}`;
+  const path = options.artworkPath
+    ? options.artworkPath
+    : options.coverid
+      ? `/music/${encodeURIComponent(options.coverid)}/cover.jpg`
+      : options.trackId
+        ? `/music/${encodeURIComponent(options.trackId)}/cover.jpg`
+        : `/music/current/cover.jpg?player=${encodeURIComponent(options.player ?? session.mac)}`;
 
   const response = await fetch(new URL(path, session.config.serverUrl), {
     method: "GET",
@@ -1562,7 +1603,7 @@ const handleRequest = async (
     return;
   }
 
-  // GET /api/artwork?token=...&coverid=...|trackId=...|player=...
+  // GET /api/artwork?token=...&artworkPath=...|coverid=...|trackId=...|player=...
   if (req.method === "GET" && requestPath === "/api/artwork") {
     const params = requestUrl.searchParams;
     const token = params.get("token");
@@ -1578,6 +1619,7 @@ const handleRequest = async (
     }
 
     await proxyArtwork(res, session, {
+      artworkPath: params.get("artworkPath") ?? undefined,
       coverid: params.get("coverid") ?? undefined,
       trackId: params.get("trackId") ?? undefined,
       player: params.get("player") ?? undefined,
