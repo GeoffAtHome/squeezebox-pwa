@@ -10,3 +10,6 @@ interface BeforeInstallPromptEvent extends Event {
 interface WindowEventMap {
   beforeinstallprompt: BeforeInstallPromptEvent;
 }
+
+declare const __APP_VERSION__: string;
+declare const __BUILD_STAMP__: string;

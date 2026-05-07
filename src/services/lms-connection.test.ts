@@ -10,6 +10,13 @@ const loadSubject = async (options?: {
   } | null;
   storageData?: Record<string, unknown>;
   sessionPassword?: string;
+  browseCacheData?: Record<
+    string,
+    {
+      staleMarker: number;
+      entries: Record<string, unknown>;
+    }
+  >;
 }) => {
   vi.resetModules();
 
@@ -43,6 +50,34 @@ const loadSubject = async (options?: {
   const mockBrowse = vi.fn().mockResolvedValue({ item_loop: [] });
   const mockTrackDone = vi.fn().mockResolvedValue(undefined);
   const mockTrackStarted = vi.fn().mockResolvedValue(undefined);
+  const browseCacheData = new Map(
+    Object.entries(options?.browseCacheData ?? {}),
+  );
+  const mockBrowseCacheLoadContext = vi.fn(
+    async (context: string, staleMarker: number) => {
+      const record = browseCacheData.get(context);
+      if (!record || record.staleMarker !== staleMarker) {
+        return {};
+      }
+
+      return record.entries;
+    },
+  );
+  const mockBrowseCachePutEntry = vi.fn(
+    async (
+      context: string,
+      staleMarker: number,
+      queryKey: string,
+      result: unknown,
+    ) => {
+      const existing = browseCacheData.get(context);
+      const entries = { ...(existing?.entries ?? {}), [queryKey]: result };
+      browseCacheData.set(context, { staleMarker, entries });
+    },
+  );
+  const mockBrowseCacheDeleteContext = vi.fn(async (context: string) => {
+    browseCacheData.delete(context);
+  });
 
   vi.doMock("@services/bridge-client", () => ({
     bridgeClient: {
@@ -66,6 +101,14 @@ const loadSubject = async (options?: {
     },
   }));
 
+  vi.doMock("./browse-cache-store", () => ({
+    browseCacheStore: {
+      loadContext: mockBrowseCacheLoadContext,
+      putEntry: mockBrowseCachePutEntry,
+      deleteContext: mockBrowseCacheDeleteContext,
+    },
+  }));
+
   const subject = await import("./lms-connection");
 
   return {
@@ -82,6 +125,10 @@ const loadSubject = async (options?: {
     storageGet,
     storageRemove,
     storageMap,
+    mockBrowseCacheLoadContext,
+    mockBrowseCachePutEntry,
+    mockBrowseCacheDeleteContext,
+    browseCacheData,
   };
 };
 
@@ -320,7 +367,7 @@ describe("lmsConnection", () => {
 
   it("hydrates browse cache from storage after reconnect", async () => {
     const playerId = "02:00:00:aa:bb:cc";
-    const cacheStorageKey = `browseCache_${encodeURIComponent(`http://localhost:9000::${playerId}`)}`;
+    const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
       item_loop: [{ id: "myapps", text: "My Apps" }],
     };
@@ -328,7 +375,9 @@ describe("lmsConnection", () => {
     const { lmsConnection, mockBrowse } = await loadSubject({
       storageData: {
         browseCacheStaleMarker: 0,
-        [cacheStorageKey]: {
+      },
+      browseCacheData: {
+        [cacheContext]: {
           staleMarker: 0,
           entries: {
             '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
@@ -351,6 +400,71 @@ describe("lmsConnection", () => {
 
     expect(result).toEqual(cachedResult);
     expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("warms browse cache in the background in artists, albums, tracks, playlists order", async () => {
+    const { lmsConnection, mockBrowse } = await loadSubject();
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.warmBrowseCacheInBackground();
+
+    expect(mockBrowse.mock.calls.map(([, query]) => query.itemId)).toEqual([
+      "section:artists",
+      "section:albums",
+      "section:tracks",
+      "section:playlists",
+    ]);
+  });
+
+  it("warms additional browse pages until a section is fully cached", async () => {
+    const { lmsConnection, mockBrowse } = await loadSubject();
+
+    mockBrowse
+      .mockResolvedValueOnce({
+        item_loop: Array.from({ length: 100 }, (_, index) => ({
+          id: `artist:${index + 1}`,
+          text: `Artist ${index + 1}`,
+        })),
+        count: 150,
+      })
+      .mockResolvedValueOnce({
+        item_loop: Array.from({ length: 50 }, (_, index) => ({
+          id: `artist:${index + 101}`,
+          text: `Artist ${index + 101}`,
+        })),
+        count: 150,
+      })
+      .mockResolvedValue({ item_loop: [], count: 0 });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    await lmsConnection.warmBrowseCacheInBackground();
+
+    expect(mockBrowse).toHaveBeenCalledTimes(5);
+
+    expect(mockBrowse.mock.calls[0]?.[1]).toEqual({
+      itemId: "section:artists",
+      start: 0,
+      quantity: 100,
+      search: undefined,
+    });
+    expect(mockBrowse.mock.calls[1]?.[1]).toEqual({
+      itemId: "section:artists",
+      start: 100,
+      quantity: 100,
+      search: undefined,
+    });
   });
 
   it("plays browse item via playlistcontrol load command", async () => {

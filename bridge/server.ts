@@ -166,13 +166,23 @@ type LmsBrowseEntry = {
   playlist?: string;
   name?: string;
   type?: string;
+  coverid?: string | number;
+  artwork_url?: string;
+  duration?: string | number;
+  tracknum?: string | number;
 };
 
 type BridgeBrowseItem = {
   id: string;
   text: string;
+  subtitle?: string;
+  meta?: string;
+  artworkUrl?: string;
   hasitems?: number | boolean;
   type?: string;
+  canOpen?: boolean;
+  canPlay?: boolean;
+  canQueue?: boolean;
 };
 
 type BridgeBrowseResult = {
@@ -182,17 +192,76 @@ type BridgeBrowseResult = {
 };
 
 const ROOT_BROWSE_ITEMS: BridgeBrowseItem[] = [
-  { id: "section:artists", text: "Artists", hasitems: 1, type: "section" },
-  { id: "section:albums", text: "Albums", hasitems: 1, type: "section" },
-  { id: "section:genres", text: "Genres", hasitems: 1, type: "section" },
-  { id: "section:years", text: "Years", hasitems: 1, type: "section" },
+  {
+    id: "section:artists",
+    text: "Artists",
+    subtitle: "Browse by artist",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
+  {
+    id: "section:albums",
+    text: "Albums",
+    subtitle: "Browse by album",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
+  {
+    id: "section:tracks",
+    text: "Tracks",
+    subtitle: "Browse all tracks",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
+  {
+    id: "section:genres",
+    text: "Genres",
+    subtitle: "Browse by genre",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
+  {
+    id: "section:years",
+    text: "Years",
+    subtitle: "Browse by year",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
   {
     id: "section:playlists",
     text: "Playlists",
+    subtitle: "Saved playlists",
     hasitems: 1,
     type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
   },
-  { id: "section:folders", text: "Folders", hasitems: 1, type: "section" },
+  {
+    id: "section:folders",
+    text: "Folders",
+    subtitle: "Browse folders",
+    hasitems: 1,
+    type: "section",
+    canOpen: true,
+    canPlay: false,
+    canQueue: false,
+  },
 ];
 
 const buildBrowseResult = (
@@ -245,12 +314,51 @@ const toText = (value: unknown, fallback: string): string => {
   return fallback;
 };
 
+const formatDuration = (value: unknown): string | undefined => {
+  const durationSeconds =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return undefined;
+  }
+
+  const totalSeconds = Math.round(durationSeconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
+const joinMeta = (...parts: Array<string | undefined>): string | undefined => {
+  const values = parts.filter(
+    (part): part is string =>
+      typeof part === "string" && part.trim().length > 0,
+  );
+
+  return values.length > 0 ? values.join(" • ") : undefined;
+};
+
+const buildBrowseArtworkUrl = (
+  session: Session | undefined,
+  entry: Pick<LmsBrowseEntry, "id" | "coverid" | "artwork_url">,
+): string | undefined => {
+  if (!session) {
+    return undefined;
+  }
+
+  return buildArtworkProxyUrl(session, entry);
+};
+
 const browseLibrary = async (
   config: BridgeConfig,
   start: number,
   quantity: number,
   itemId?: string,
   search?: string,
+  session?: Session,
 ): Promise<BridgeBrowseResult> => {
   const target = parseBrowseId(itemId);
 
@@ -269,8 +377,14 @@ const browseLibrary = async (
           return {
             id: `track:${entry.id}`,
             text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+            subtitle: entry.artist,
+            meta: joinMeta(entry.album, formatDuration(entry.duration)),
+            artworkUrl: buildBrowseArtworkUrl(session, entry),
             hasitems: 0,
             type: "track",
+            canOpen: false,
+            canPlay: true,
+            canQueue: true,
           };
         },
       ),
@@ -304,8 +418,12 @@ const browseLibrary = async (
                     entry.artist ?? entry.name,
                     `Artist ${index + 1}`,
                   ),
+                  subtitle: "Artist",
                   hasitems: 1,
                   type: "artist",
+                  canOpen: true,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -319,7 +437,7 @@ const browseLibrary = async (
             albums_loop?: LmsBrowseEntry[];
             album_loop?: LmsBrowseEntry[];
             count?: number;
-          }>(config, [0, ["albums", start, quantity, "tags:alj"]]);
+          }>(config, [0, ["albums", start, quantity, "tags:aljcc"]]);
 
           return {
             item_loop: mapQueryItems(
@@ -332,8 +450,48 @@ const browseLibrary = async (
                     entry.album ?? entry.title,
                     `Album ${index + 1}`,
                   ),
+                  subtitle: entry.artist,
+                  meta:
+                    typeof entry.year !== "undefined"
+                      ? String(entry.year)
+                      : undefined,
+                  artworkUrl: buildBrowseArtworkUrl(session, entry),
                   hasitems: 1,
                   type: "album",
+                  canOpen: true,
+                  canPlay: true,
+                  canQueue: true,
+                };
+              },
+            ),
+            count: Number(result.count ?? 0),
+            offset: start,
+          };
+        }
+
+        case "tracks": {
+          const result = await callJsonRpc<{
+            titles_loop?: LmsBrowseEntry[];
+            song_loop?: LmsBrowseEntry[];
+            count?: number;
+          }>(config, [0, ["titles", start, quantity]]);
+
+          return {
+            item_loop: mapQueryItems(
+              result.titles_loop ?? result.song_loop,
+              (entry, index) => {
+                if (entry.id === undefined || entry.id === null) return null;
+                return {
+                  id: `track:${entry.id}`,
+                  text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+                  subtitle: entry.artist,
+                  meta: joinMeta(entry.album, formatDuration(entry.duration)),
+                  artworkUrl: buildBrowseArtworkUrl(session, entry),
+                  hasitems: 0,
+                  type: "track",
+                  canOpen: false,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -357,8 +515,12 @@ const browseLibrary = async (
                 return {
                   id: `genre:${entry.id}`,
                   text: toText(entry.genre ?? entry.name, `Genre ${index + 1}`),
+                  subtitle: "Genre",
                   hasitems: 1,
                   type: "genre",
+                  canOpen: true,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -387,8 +549,12 @@ const browseLibrary = async (
                 return {
                   id: `year:${yearValue}`,
                   text: toText(entry.year, `Year ${index + 1}`),
+                  subtitle: "Year",
                   hasitems: 1,
                   type: "year",
+                  canOpen: true,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -415,8 +581,12 @@ const browseLibrary = async (
                     entry.playlist ?? entry.name,
                     `Playlist ${index + 1}`,
                   ),
+                  subtitle: "Playlist",
                   hasitems: 1,
                   type: "playlist",
+                  canOpen: true,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -448,8 +618,23 @@ const browseLibrary = async (
                       ? `playlist:${entry.id}`
                       : `track:${entry.id}`,
                   text: toText(entry.title ?? entry.name, `Item ${index + 1}`),
+                  subtitle: isFolder
+                    ? "Folder"
+                    : isPlaylist
+                      ? "Playlist"
+                      : entry.artist,
+                  meta: isFolder
+                    ? undefined
+                    : joinMeta(entry.album, formatDuration(entry.duration)),
+                  artworkUrl:
+                    isFolder || isPlaylist
+                      ? undefined
+                      : buildBrowseArtworkUrl(session, entry),
                   hasitems: isFolder ? 1 : 0,
                   type,
+                  canOpen: isFolder || isPlaylist,
+                  canPlay: true,
+                  canQueue: true,
                 };
               },
             ),
@@ -468,7 +653,10 @@ const browseLibrary = async (
         albums_loop?: LmsBrowseEntry[];
         album_loop?: LmsBrowseEntry[];
         count?: number;
-      }>(config, [0, ["albums", start, quantity, `artist_id:${target.value}`]]);
+      }>(config, [
+        0,
+        ["albums", start, quantity, `artist_id:${target.value}`, "tags:aljcc"],
+      ]);
 
       return {
         item_loop: mapQueryItems(
@@ -478,8 +666,17 @@ const browseLibrary = async (
             return {
               id: `album:${entry.id}`,
               text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              subtitle: entry.artist,
+              meta:
+                typeof entry.year !== "undefined"
+                  ? String(entry.year)
+                  : undefined,
+              artworkUrl: buildBrowseArtworkUrl(session, entry),
               hasitems: 1,
               type: "album",
+              canOpen: true,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -493,7 +690,10 @@ const browseLibrary = async (
         albums_loop?: LmsBrowseEntry[];
         album_loop?: LmsBrowseEntry[];
         count?: number;
-      }>(config, [0, ["albums", start, quantity, `genre_id:${target.value}`]]);
+      }>(config, [
+        0,
+        ["albums", start, quantity, `genre_id:${target.value}`, "tags:aljcc"],
+      ]);
 
       return {
         item_loop: mapQueryItems(
@@ -503,8 +703,17 @@ const browseLibrary = async (
             return {
               id: `album:${entry.id}`,
               text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              subtitle: entry.artist,
+              meta:
+                typeof entry.year !== "undefined"
+                  ? String(entry.year)
+                  : undefined,
+              artworkUrl: buildBrowseArtworkUrl(session, entry),
               hasitems: 1,
               type: "album",
+              canOpen: true,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -518,7 +727,10 @@ const browseLibrary = async (
         albums_loop?: LmsBrowseEntry[];
         album_loop?: LmsBrowseEntry[];
         count?: number;
-      }>(config, [0, ["albums", start, quantity, `year:${target.value}`]]);
+      }>(config, [
+        0,
+        ["albums", start, quantity, `year:${target.value}`, "tags:aljcc"],
+      ]);
 
       return {
         item_loop: mapQueryItems(
@@ -528,8 +740,17 @@ const browseLibrary = async (
             return {
               id: `album:${entry.id}`,
               text: toText(entry.album ?? entry.title, `Album ${index + 1}`),
+              subtitle: entry.artist,
+              meta:
+                typeof entry.year !== "undefined"
+                  ? String(entry.year)
+                  : undefined,
+              artworkUrl: buildBrowseArtworkUrl(session, entry),
               hasitems: 1,
               type: "album",
+              canOpen: true,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -562,8 +783,17 @@ const browseLibrary = async (
             return {
               id: `track:${entry.id}`,
               text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+              subtitle: entry.artist,
+              meta: joinMeta(
+                entry.tracknum ? `Track ${entry.tracknum}` : undefined,
+                formatDuration(entry.duration),
+              ),
+              artworkUrl: buildBrowseArtworkUrl(session, entry),
               hasitems: 0,
               type: "track",
+              canOpen: false,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -591,8 +821,14 @@ const browseLibrary = async (
             return {
               id: `track:${entry.id}`,
               text: toText(entry.title ?? entry.name, `Track ${index + 1}`),
+              subtitle: entry.artist,
+              meta: joinMeta(entry.album, formatDuration(entry.duration)),
+              artworkUrl: buildBrowseArtworkUrl(session, entry),
               hasitems: 0,
               type: "track",
+              canOpen: false,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -627,8 +863,23 @@ const browseLibrary = async (
                   ? `playlist:${entry.id}`
                   : `track:${entry.id}`,
               text: toText(entry.title ?? entry.name, `Item ${index + 1}`),
+              subtitle: isFolder
+                ? "Folder"
+                : isPlaylist
+                  ? "Playlist"
+                  : entry.artist,
+              meta: isFolder
+                ? undefined
+                : joinMeta(entry.album, formatDuration(entry.duration)),
+              artworkUrl:
+                isFolder || isPlaylist
+                  ? undefined
+                  : buildBrowseArtworkUrl(session, entry),
               hasitems: isFolder ? 1 : 0,
               type,
+              canOpen: isFolder || isPlaylist,
+              canPlay: true,
+              canQueue: true,
             };
           },
         ),
@@ -1573,6 +1824,7 @@ const handleRequest = async (
         quantity,
         itemId,
         search,
+        session,
       );
 
       logRequest("browse result", {

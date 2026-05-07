@@ -9,7 +9,7 @@ export {};
 
 const sw = globalThis as unknown as ServiceWorkerGlobalScope;
 
-const CACHE_NAME = "squeezebox-v1";
+const CACHE_NAME = `squeezebox-${__BUILD_STAMP__}`;
 const ASSETS_TO_CACHE = ["/", "/index.html", "/manifest.webmanifest"];
 
 // Install event - cache essential assets
@@ -51,6 +51,32 @@ sw.addEventListener("fetch", (event) => {
   // so browser networking handles CORS and streaming natively.
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== sw.location.origin) {
+    return;
+  }
+
+  // Always prefer a fresh app shell for navigations so new deployments
+  // become visible immediately instead of waiting behind cached index.html.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request);
+          if (cached) {
+            return cached;
+          }
+
+          return caches.match("/index.html") as Promise<Response>;
+        }),
+    );
     return;
   }
 

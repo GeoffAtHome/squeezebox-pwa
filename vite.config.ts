@@ -1,9 +1,16 @@
 import { defineConfig } from "vite";
 import { fileURLToPath, URL } from "node:url";
 
+const appVersion = process.env.npm_package_version ?? "0.0.0";
+const buildStamp = new Date().toISOString();
+
 export default defineConfig({
   root: "src",
   envDir: "..",
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_STAMP__: JSON.stringify(buildStamp),
+  },
   resolve: {
     alias: {
       "@components": fileURLToPath(

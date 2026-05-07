@@ -8,6 +8,7 @@ import {
   type BrowseResult,
   type PlayerEvent,
 } from "./bridge-client";
+import { browseCacheStore } from "./browse-cache-store";
 import { storage } from "./storage";
 import type { ConnectionStatus, ServerUrl, ButtonCommand } from "@utils/types";
 import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
@@ -38,12 +39,20 @@ export interface ConnectionState {
   duration?: number;
 }
 
-type PersistedBrowseCache = {
-  staleMarker: number;
-  entries: Record<string, BrowseResult>;
+type BrowseWarmTarget = {
+  itemId: string;
+  label: string;
 };
 
 class LmsConnectionService {
+  private static readonly BROWSE_PREFETCH_PAGE_SIZE = 100;
+  private static readonly BROWSE_PREFETCH_TARGETS: BrowseWarmTarget[] = [
+    { itemId: "section:artists", label: "artists" },
+    { itemId: "section:albums", label: "albums" },
+    { itemId: "section:tracks", label: "tracks" },
+    { itemId: "section:playlists", label: "playlists" },
+  ];
+
   private state: ConnectionState = { status: CONNECTION_STATUS_VALUES.IDLE };
   private localPauseOverride = false;
   private credentials: {
@@ -62,6 +71,7 @@ class LmsConnectionService {
   >();
   private browseCacheGeneration = 0;
   private browseCacheContext: string | null = null;
+  private browseWarmRunId = 0;
 
   private static readonly BROWSE_CACHE_STALE_KEY = "browseCacheStaleMarker";
 
@@ -93,7 +103,7 @@ class LmsConnectionService {
         playerName,
       };
       this.sessionToken = token;
-      this.initializeBrowseCache(validatedUrl, mac);
+      await this.initializeBrowseCache(validatedUrl, mac);
       storage.saveServerConfig(
         serverUrl,
         username,
@@ -128,6 +138,7 @@ class LmsConnectionService {
       this.unsubscribeEvents();
       this.unsubscribeEvents = null;
     }
+    this.browseWarmRunId += 1;
     this.credentials = null;
     this.sessionToken = null;
     this.browseCache.clear();
@@ -328,7 +339,7 @@ class LmsConnectionService {
       generation: this.browseCacheGeneration,
       result,
     });
-    this.persistBrowseCache();
+    void this.persistBrowseCacheEntry(cacheKey, result);
 
     return result;
   }
@@ -448,15 +459,23 @@ class LmsConnectionService {
     );
 
     if (this.browseCacheContext) {
-      storage.remove(this.getBrowseCacheStorageKey(this.browseCacheContext));
+      void browseCacheStore.deleteContext(this.browseCacheContext);
+      storage.remove(
+        this.getLegacyBrowseCacheStorageKey(this.browseCacheContext),
+      );
     }
 
     this.browseCache.clear();
   }
 
   clearBrowseCache(): void {
+    this.browseWarmRunId += 1;
+
     if (this.browseCacheContext) {
-      storage.remove(this.getBrowseCacheStorageKey(this.browseCacheContext));
+      void browseCacheStore.deleteContext(this.browseCacheContext);
+      storage.remove(
+        this.getLegacyBrowseCacheStorageKey(this.browseCacheContext),
+      );
     }
 
     this.browseCache.clear();
@@ -464,22 +483,35 @@ class LmsConnectionService {
     storage.set(LmsConnectionService.BROWSE_CACHE_STALE_KEY, 0);
   }
 
-  private initializeBrowseCache(serverUrl: string, playerId: string): void {
+  warmBrowseCacheInBackground(): Promise<void> {
+    if (!this.credentials || !this.state.playerId || !this.sessionToken) {
+      return Promise.resolve();
+    }
+
+    const runId = ++this.browseWarmRunId;
+    return this.prefetchBrowseTargets(runId);
+  }
+
+  private async initializeBrowseCache(
+    serverUrl: string,
+    playerId: string,
+  ): Promise<void> {
     this.browseCache.clear();
     this.browseCacheContext = this.getBrowseCacheContext(serverUrl, playerId);
 
     this.browseCacheGeneration =
       storage.get<number>(LmsConnectionService.BROWSE_CACHE_STALE_KEY, 0) ?? 0;
 
-    const persisted = storage.get<PersistedBrowseCache>(
-      this.getBrowseCacheStorageKey(this.browseCacheContext),
+    storage.remove(
+      this.getLegacyBrowseCacheStorageKey(this.browseCacheContext),
     );
 
-    if (!persisted || persisted.staleMarker !== this.browseCacheGeneration) {
-      return;
-    }
+    const persisted = await browseCacheStore.loadContext(
+      this.browseCacheContext,
+      this.browseCacheGeneration,
+    );
 
-    for (const [key, result] of Object.entries(persisted.entries)) {
+    for (const [key, result] of Object.entries(persisted)) {
       this.browseCache.set(key, {
         generation: this.browseCacheGeneration,
         result,
@@ -487,22 +519,17 @@ class LmsConnectionService {
     }
   }
 
-  private persistBrowseCache(): void {
+  private async persistBrowseCacheEntry(
+    cacheKey: string,
+    result: BrowseResult,
+  ): Promise<void> {
     if (!this.browseCacheContext) return;
 
-    const entries: Record<string, BrowseResult> = {};
-    for (const [key, value] of this.browseCache.entries()) {
-      entries[key] = value.result;
-    }
-
-    const payload: PersistedBrowseCache = {
-      staleMarker: this.browseCacheGeneration,
-      entries,
-    };
-
-    storage.set(
-      this.getBrowseCacheStorageKey(this.browseCacheContext),
-      payload,
+    await browseCacheStore.putEntry(
+      this.browseCacheContext,
+      this.browseCacheGeneration,
+      cacheKey,
+      result,
     );
   }
 
@@ -510,8 +537,69 @@ class LmsConnectionService {
     return `${serverUrl}::${playerId}`;
   }
 
-  private getBrowseCacheStorageKey(context: string): string {
+  private getLegacyBrowseCacheStorageKey(context: string): string {
     return `browseCache_${encodeURIComponent(context)}`;
+  }
+
+  private async prefetchBrowseTargets(runId: number): Promise<void> {
+    for (const target of LmsConnectionService.BROWSE_PREFETCH_TARGETS) {
+      if (!this.isBrowseWarmRunActive(runId)) {
+        return;
+      }
+
+      try {
+        await this.prefetchBrowsePages(target.itemId, runId);
+      } catch (error) {
+        if (!this.isBrowseWarmRunActive(runId)) {
+          return;
+        }
+
+        console.warn(
+          `[browse-cache] failed to warm ${target.label}`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+  }
+
+  private async prefetchBrowsePages(
+    itemId: string,
+    runId: number,
+  ): Promise<void> {
+    let start = 0;
+
+    while (this.isBrowseWarmRunActive(runId)) {
+      const result = await this.browseMenu({
+        itemId,
+        start,
+        quantity: LmsConnectionService.BROWSE_PREFETCH_PAGE_SIZE,
+      });
+
+      const items = result.item_loop ?? [];
+      const count = Math.max(items.length, Number(result.count ?? 0));
+
+      if (items.length === 0) {
+        return;
+      }
+
+      start += LmsConnectionService.BROWSE_PREFETCH_PAGE_SIZE;
+      if (
+        start >= count ||
+        items.length < LmsConnectionService.BROWSE_PREFETCH_PAGE_SIZE
+      ) {
+        return;
+      }
+    }
+  }
+
+  private isBrowseWarmRunActive(runId: number): boolean {
+    return (
+      runId === this.browseWarmRunId &&
+      this.state.status === CONNECTION_STATUS_VALUES.CONNECTED &&
+      !!this.credentials &&
+      !!this.state.playerId &&
+      !!this.sessionToken
+    );
   }
 
   private handlePlayerEvent(event: PlayerEvent): void {

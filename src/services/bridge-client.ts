@@ -33,8 +33,14 @@ export interface BrowseItem {
   node?: string;
   text?: string;
   name?: string;
+  subtitle?: string;
+  meta?: string;
+  artworkUrl?: string;
   type?: string;
   hasitems?: number | boolean;
+  canOpen?: boolean;
+  canPlay?: boolean;
+  canQueue?: boolean;
   passthrough?: Record<string, unknown>;
 }
 
@@ -277,6 +283,13 @@ export class BridgeClient {
 
     if (!res.ok || !data.result) {
       throw new Error(data.error ?? "Browse request failed");
+    }
+
+    if (Array.isArray(data.result.item_loop)) {
+      data.result.item_loop = data.result.item_loop.map((item) => ({
+        ...item,
+        artworkUrl: qualifyBridgeUrl(item.artworkUrl, this.bridgeUrl),
+      }));
     }
 
     return data.result;

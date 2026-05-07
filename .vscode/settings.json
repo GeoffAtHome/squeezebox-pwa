@@ -1,6 +1,8 @@
 {
   "cSpell.words": [
     "alac",
+    "albumtrack",
+    "Alexa",
     "appinstalled",
     "audg",
     "beforeinstallprompt",
@@ -12,6 +14,7 @@
     "flac",
     "Glzd",
     "grfe",
+    "hasitems",
     "Helo",
     "hiwiccp",
     "Klcet",
@@ -19,8 +22,10 @@
     "MPAUSE",
     "MPLAY",
     "MRATE",
+    "musicfolder",
     "playerid",
     "playlistcontrol",
+    "playlisttracks",
     "Segoe",
     "serv",
     "SETMETA",
@@ -30,9 +35,12 @@
     "SLSC",
     "soord",
     "strm",
+    "trackdone",
     "tracknum",
+    "trackstarted",
     "visu",
     "VITE",
-    "WCAG"
+    "WCAG",
+    "yourdomain"
   ]
 }

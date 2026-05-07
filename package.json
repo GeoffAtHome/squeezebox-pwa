@@ -7,6 +7,7 @@
     "dev": "vite",
     "bridge:dev": "node --env-file=.env.local --experimental-strip-types bridge/server.ts",
     "build": "tsc && vite build",
+    "deploy": "npm run build && firebase deploy --only hosting",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest --watch",

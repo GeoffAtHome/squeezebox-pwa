@@ -7,7 +7,7 @@ import { AppShell } from "./components/app-shell";
 // execute a TypeScript source file directly as a service worker script)
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   navigator.serviceWorker
-    .register("./service-worker.js", { type: "module" })
+    .register("./service-worker.js", { type: "module", updateViaCache: "none" })
     .catch((error) => {
       console.warn("Service Worker registration failed:", error);
     });

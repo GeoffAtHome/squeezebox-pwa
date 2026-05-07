@@ -24,6 +24,9 @@ describe("app-shell", () => {
       status: CONNECTION_STATUS_VALUES.IDLE,
     });
     vi.spyOn(lmsConnection, "restoreConnection").mockResolvedValue(false);
+    vi.spyOn(lmsConnection, "warmBrowseCacheInBackground").mockResolvedValue(
+      undefined,
+    );
     vi.spyOn(lmsConnection, "onStateChange").mockImplementation((listener) => {
       connectionStateListener = listener;
       return () => {
@@ -236,5 +239,48 @@ describe("app-shell", () => {
       "Squeezebox PWA",
       true,
     );
+  });
+
+  it("starts background browse warming after a successful connection", async () => {
+    vi.spyOn(lmsConnection, "connect").mockResolvedValue();
+    const warmSpy = vi.spyOn(lmsConnection, "warmBrowseCacheInBackground");
+
+    const element = document.createElement("app-shell");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const dialog = getRequiredElement(element.shadowRoot, "connection-dialog");
+
+    dialog.dispatchEvent(
+      new CustomEvent("connect", {
+        detail: {
+          serverUrl: "http://localhost:9000",
+          username: "SlimpMP3",
+          password: "hiwiccp",
+          playerName: "Squeezebox PWA",
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    await Promise.resolve();
+
+    expect(warmSpy).toHaveBeenCalledOnce();
+  });
+
+  it("starts background browse warming after restoring a saved connection", async () => {
+    vi.spyOn(lmsConnection, "restoreConnection").mockResolvedValue(true);
+    const warmSpy = vi.spyOn(lmsConnection, "warmBrowseCacheInBackground");
+
+    const element = document.createElement("app-shell");
+    document.body.appendChild(element);
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    await Promise.resolve();
+
+    expect(warmSpy).toHaveBeenCalledOnce();
   });
 });

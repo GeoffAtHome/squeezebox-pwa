@@ -187,9 +187,8 @@ export class ConnectionDialog extends LitElement {
           composed: true,
         }),
       );
-
-      // Reset form
-      this.password = "";
+      // Release local form lock immediately; app shell owns async connect state.
+      this.isConnecting = false;
     } catch (err) {
       this.error = "Connection failed. Please try again.";
       this.isConnecting = false;

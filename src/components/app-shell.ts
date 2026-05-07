@@ -12,6 +12,11 @@ import { CONNECTION_STATUS_VALUES } from "@utils/types";
 
 @customElement("app-shell")
 export class AppShell extends LitElement {
+  private static readonly APP_VERSION =
+    typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "dev";
+  private static readonly BUILD_STAMP =
+    typeof __BUILD_STAMP__ !== "undefined" ? __BUILD_STAMP__ : "unknown";
+
   @state()
   connectionState: ConnectionState = lmsConnection.getState();
 
@@ -44,6 +49,25 @@ export class AppShell extends LitElement {
       padding: 1rem;
       border-bottom: 1px solid #333;
       text-align: center;
+    }
+
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.45rem;
+      font-size: 0.74rem;
+      color: #b8c0cc;
+    }
+
+    .badge {
+      border: 1px solid #3b414b;
+      border-radius: 999px;
+      background: #1a1f28;
+      color: #e2e8f0;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      padding: 0.16rem 0.5rem;
     }
 
     .header h1 {
@@ -97,9 +121,16 @@ export class AppShell extends LitElement {
     window.addEventListener("beforeinstallprompt", this.handleInstallPrompt);
     window.addEventListener("appinstalled", this.handleAppInstalled);
 
-    lmsConnection.restoreConnection().catch(() => {
-      this.showPlayer = false;
-    });
+    lmsConnection
+      .restoreConnection()
+      .then((restored) => {
+        if (restored) {
+          void lmsConnection.warmBrowseCacheInBackground();
+        }
+      })
+      .catch(() => {
+        this.showPlayer = false;
+      });
   }
 
   disconnectedCallback() {
@@ -135,6 +166,7 @@ export class AppShell extends LitElement {
         playerName,
         rememberPassword,
       );
+      void lmsConnection.warmBrowseCacheInBackground();
       if (this.installPromptEvent) this.installPromptEvent.prompt();
     } catch (error) {
       console.error("Connection failed:", error);
@@ -142,10 +174,19 @@ export class AppShell extends LitElement {
   };
 
   render() {
+    const buildDate = new Date(AppShell.BUILD_STAMP);
+    const buildLabel = Number.isNaN(buildDate.getTime())
+      ? AppShell.BUILD_STAMP
+      : buildDate.toLocaleString();
+
     return html`
       <div class="container">
         <div class="header">
           <h1>PWA Squeezebox</h1>
+          <div class="header-badge" title="Build information">
+            <span class="badge">v${AppShell.APP_VERSION}</span>
+            <span>${buildLabel}</span>
+          </div>
         </div>
 
         <div class="main">
