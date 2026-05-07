@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/dom";
 
 import { storage } from "../services/storage";
+import { type ServerUrl, type Username } from "@utils/types";
 import "./connection-dialog";
 
 const getRequiredElement = <T extends Element>(
@@ -154,8 +155,8 @@ describe("connection-dialog", () => {
 
   it("prefills saved server configuration", async () => {
     vi.spyOn(storage, "getServerConfig").mockReturnValue({
-      serverUrl: "http://saved-host:9000",
-      username: "saved-user",
+      serverUrl: "http://saved-host:9000" as ServerUrl,
+      username: "saved-user" as Username,
     });
     vi.spyOn(storage, "getRememberPassword").mockReturnValue(true);
 

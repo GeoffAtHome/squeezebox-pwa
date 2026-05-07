@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CONNECTION_STATUS_VALUES } from "@utils/types";
+import { CONNECTION_STATUS_VALUES, type ItemId } from "@utils/types";
 
 const loadSubject = async (options?: {
   storedConfig?: {
@@ -312,7 +312,10 @@ describe("lmsConnection", () => {
       "My Player",
     );
 
-    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
 
     expect(mockBrowse).toHaveBeenCalledWith(
       {
@@ -342,8 +345,14 @@ describe("lmsConnection", () => {
       "My Player",
     );
 
-    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
-    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
+    await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
 
     expect(mockBrowse).toHaveBeenCalledTimes(1);
   });
@@ -358,9 +367,15 @@ describe("lmsConnection", () => {
       "My Player",
     );
 
-    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
     lmsConnection.markBrowseCacheStale();
-    await lmsConnection.browseMenu({ itemId: "myapps", quantity: 50 });
+    await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
 
     expect(mockBrowse).toHaveBeenCalledTimes(2);
   });
@@ -394,7 +409,7 @@ describe("lmsConnection", () => {
     );
 
     const result = await lmsConnection.browseMenu({
-      itemId: "myapps",
+      itemId: "myapps" as ItemId,
       quantity: 50,
     });
 
@@ -477,7 +492,7 @@ describe("lmsConnection", () => {
       "My Player",
     );
 
-    await lmsConnection.playBrowseItem("track:123");
+    await lmsConnection.playBrowseItem("track:123" as ItemId);
 
     expect(mockPlayerCommand).toHaveBeenCalledWith(
       {
@@ -529,7 +544,7 @@ describe("lmsConnection", () => {
       "My Player",
     );
 
-    await lmsConnection.addToEndBrowseItem("track:789");
+    await lmsConnection.addToEndBrowseItem("track:789" as ItemId);
 
     expect(mockPlayerCommand).toHaveBeenCalledWith(
       {

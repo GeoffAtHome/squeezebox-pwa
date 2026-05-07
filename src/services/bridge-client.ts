@@ -3,26 +3,36 @@
  * Communicates with the local LMS bridge server (HTTP + SSE)
  */
 
+import type {
+  ServerUrl,
+  Username,
+  ItemId,
+  ArtworkUrl,
+  PlayerId,
+  Token,
+  StreamUrl,
+} from "@utils/types";
+
 export interface RegisterConfig {
-  serverUrl: string;
-  username?: string;
+  serverUrl: ServerUrl;
+  username?: Username;
   password?: string;
   playerName: string;
 }
 
 export interface RegisterResult {
-  token: string;
-  mac: string;
+  token: Token;
+  mac: PlayerId;
   playerName: string;
 }
 
 export interface BrowseConfig extends RegisterConfig {
-  playerId: string;
-  token?: string;
+  playerId: PlayerId;
+  token?: Token;
 }
 
 export interface BrowseQuery {
-  itemId?: string;
+  itemId?: ItemId;
   start?: number;
   quantity?: number;
   search?: string;
@@ -35,7 +45,7 @@ export interface BrowseItem {
   name?: string;
   subtitle?: string;
   meta?: string;
-  artworkUrl?: string;
+  artworkUrl?: ArtworkUrl;
   type?: string;
   hasitems?: number | boolean;
   canOpen?: boolean;
@@ -51,8 +61,8 @@ export interface BrowseResult {
 }
 
 export type PlayerEvent =
-  | { type: "registered"; playerId: string; playerName: string }
-  | { type: "stream"; url: string; mimeType: string }
+  | { type: "registered"; playerId: PlayerId; playerName: string }
+  | { type: "stream"; url: StreamUrl; mimeType: string }
   | { type: "pause" }
   | { type: "unpause" }
   | { type: "stop" }
@@ -62,7 +72,7 @@ export type PlayerEvent =
       title: string;
       artist: string;
       album: string;
-      artworkUrl?: string;
+      artworkUrl?: ArtworkUrl;
       playbackStatus?: "playing" | "paused" | "stopped";
       elapsed?: number;
       duration?: number;
@@ -179,7 +189,8 @@ export class BridgeClient {
         if (event.type === "stream") {
           onEvent({
             ...event,
-            url: qualifyBridgeUrl(event.url, this.bridgeUrl) ?? event.url,
+            url: (qualifyBridgeUrl(event.url, this.bridgeUrl) ??
+              event.url) as StreamUrl,
           });
           return;
         }
@@ -187,7 +198,9 @@ export class BridgeClient {
         if (event.type === "metadata") {
           onEvent({
             ...event,
-            artworkUrl: qualifyBridgeUrl(event.artworkUrl, this.bridgeUrl),
+            artworkUrl: qualifyBridgeUrl(event.artworkUrl, this.bridgeUrl) as
+              | ArtworkUrl
+              | undefined,
           });
           return;
         }
@@ -211,7 +224,7 @@ export class BridgeClient {
    * Send a player command via LMS JSON-RPC (e.g. play, pause, playlist skip).
    */
   async playerCommand(
-    config: RegisterConfig & { playerId: string; token?: string },
+    config: RegisterConfig & { playerId: PlayerId; token?: Token },
     command: string,
     args: unknown[] = [],
   ): Promise<void> {
@@ -288,7 +301,9 @@ export class BridgeClient {
     if (Array.isArray(data.result.item_loop)) {
       data.result.item_loop = data.result.item_loop.map((item) => ({
         ...item,
-        artworkUrl: qualifyBridgeUrl(item.artworkUrl, this.bridgeUrl),
+        artworkUrl: qualifyBridgeUrl(item.artworkUrl, this.bridgeUrl) as
+          | ArtworkUrl
+          | undefined,
       }));
     }
 

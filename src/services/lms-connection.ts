@@ -10,7 +10,17 @@ import {
 } from "./bridge-client";
 import { browseCacheStore } from "./browse-cache-store";
 import { storage } from "./storage";
-import type { ConnectionStatus, ServerUrl, ButtonCommand } from "@utils/types";
+import type {
+  ConnectionStatus,
+  ServerUrl,
+  ButtonCommand,
+  PlayerId,
+  StreamUrl,
+  ArtworkUrl,
+  ItemId,
+  Token,
+  Username,
+} from "@utils/types";
 import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
 
 export interface ConnectionState {
@@ -18,9 +28,9 @@ export interface ConnectionState {
   error?: string;
   serverUrl?: ServerUrl;
   /** MAC address assigned to this player by the bridge */
-  playerId?: string;
+  playerId?: PlayerId;
   /** Current audio stream URL (set when LMS sends a strm-s command) */
-  streamUrl?: string;
+  streamUrl?: StreamUrl;
   /** Playback status driven by LMS strm commands */
   playbackStatus?: "playing" | "paused" | "stopped";
   /** Volume level 0-100 */
@@ -32,7 +42,7 @@ export interface ConnectionState {
   /** Current track album from LMS status */
   album?: string;
   /** Artwork URL for current track */
-  artworkUrl?: string;
+  artworkUrl?: ArtworkUrl;
   /** Current elapsed position in seconds */
   elapsed?: number;
   /** Current track duration in seconds */
@@ -40,28 +50,28 @@ export interface ConnectionState {
 }
 
 type BrowseWarmTarget = {
-  itemId: string;
+  itemId: ItemId;
   label: string;
 };
 
 class LmsConnectionService {
   private static readonly BROWSE_PREFETCH_PAGE_SIZE = 100;
   private static readonly BROWSE_PREFETCH_TARGETS: BrowseWarmTarget[] = [
-    { itemId: "section:artists", label: "artists" },
-    { itemId: "section:albums", label: "albums" },
-    { itemId: "section:tracks", label: "tracks" },
-    { itemId: "section:playlists", label: "playlists" },
+    { itemId: "section:artists" as ItemId, label: "artists" },
+    { itemId: "section:albums" as ItemId, label: "albums" },
+    { itemId: "section:tracks" as ItemId, label: "tracks" },
+    { itemId: "section:playlists" as ItemId, label: "playlists" },
   ];
 
   private state: ConnectionState = { status: CONNECTION_STATUS_VALUES.IDLE };
   private localPauseOverride = false;
   private credentials: {
-    serverUrl: string;
-    username?: string;
+    serverUrl: ServerUrl;
+    username?: Username;
     password?: string;
     playerName: string;
   } | null = null;
-  private sessionToken: string | null = null;
+  private sessionToken: Token | null = null;
   private unsubscribeEvents: (() => void) | null = null;
   private listeners: Set<(state: ConnectionState) => void> = new Set();
 
@@ -84,6 +94,7 @@ class LmsConnectionService {
   ): Promise<void> {
     try {
       const validatedUrl = makeServerUrl(serverUrl);
+      const validatedUsername = username ? (username as Username) : undefined;
       this.setState({
         status: CONNECTION_STATUS_VALUES.CONNECTING,
         serverUrl: validatedUrl,
@@ -91,14 +102,14 @@ class LmsConnectionService {
 
       const { token, mac } = await bridgeClient.registerPlayer({
         serverUrl: validatedUrl,
-        username,
+        username: validatedUsername,
         password,
         playerName,
       });
 
       this.credentials = {
         serverUrl: validatedUrl,
-        username,
+        username: validatedUsername,
         password,
         playerName,
       };
@@ -299,7 +310,7 @@ class LmsConnectionService {
   }
 
   async browseMenu(options?: {
-    itemId?: string;
+    itemId?: ItemId;
     start?: number;
     quantity?: number;
     search?: string;
@@ -344,7 +355,7 @@ class LmsConnectionService {
     return result;
   }
 
-  async playBrowseItem(itemId: string): Promise<void> {
+  async playBrowseItem(itemId: ItemId): Promise<void> {
     if (!this.credentials || !this.state.playerId) {
       throw new Error("Not connected");
     }
@@ -393,7 +404,7 @@ class LmsConnectionService {
     );
   }
 
-  async addToEndBrowseItem(itemId: string): Promise<void> {
+  async addToEndBrowseItem(itemId: ItemId): Promise<void> {
     if (!this.credentials || !this.state.playerId) {
       throw new Error("Not connected");
     }
@@ -563,7 +574,7 @@ class LmsConnectionService {
   }
 
   private async prefetchBrowsePages(
-    itemId: string,
+    itemId: ItemId,
     runId: number,
   ): Promise<void> {
     let start = 0;

@@ -182,3 +182,81 @@ export type TrackPosition = Brand<number, "TrackPosition">;
 export const makeTrackPosition = (position: number): TrackPosition => {
   return Math.max(0, position) as TrackPosition;
 };
+
+// ============================================================================
+// Item ID Type
+// ============================================================================
+
+export type ItemId = Brand<string, "ItemId">;
+
+export const makeItemId = (id: string): ItemId | undefined => {
+  const trimmed = id.trim();
+  return trimmed ? (trimmed as ItemId) : undefined;
+};
+
+// ============================================================================
+// Player ID Type (MAC Address)
+// ============================================================================
+
+export type PlayerId = Brand<string, "PlayerId">;
+
+export const makePlayerId = (mac: string): PlayerId => {
+  // Basic MAC address validation (XX:XX:XX:XX:XX:XX format)
+  const macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+  if (!macRegex.test(mac)) {
+    throw new Error("Invalid MAC address format");
+  }
+  return mac as PlayerId;
+};
+
+// ============================================================================
+// Artwork URL Type
+// ============================================================================
+
+export type ArtworkUrl = Brand<string, "ArtworkUrl">;
+
+export const makeArtworkUrl = (url: string): ArtworkUrl | undefined => {
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    new URL(trimmed);
+    return trimmed as ArtworkUrl;
+  } catch {
+    throw new Error("Invalid artwork URL");
+  }
+};
+
+// ============================================================================
+// Stream URL Type
+// ============================================================================
+
+export type StreamUrl = Brand<string, "StreamUrl">;
+
+export const makeStreamUrl = (url: string): StreamUrl => {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    throw new Error("Stream URL cannot be empty");
+  }
+
+  try {
+    new URL(trimmed);
+    return trimmed as StreamUrl;
+  } catch {
+    throw new Error("Invalid stream URL");
+  }
+};
+
+// ============================================================================
+// Token Type
+// ============================================================================
+
+export type Token = Brand<string, "Token">;
+
+export const makeToken = (token: string): Token => {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    throw new Error("Token cannot be empty");
+  }
+  return trimmed as Token;
+};

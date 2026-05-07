@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { lmsConnection } from "@services/lms-connection";
-import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
+import {
+  CONNECTION_STATUS_VALUES,
+  makeServerUrl,
+  type PlayerId,
+} from "@utils/types";
 import "./app-shell";
 
 const getRequiredElement = <T extends Element>(
@@ -64,7 +68,7 @@ describe("app-shell", () => {
       connectionStateListener?.({
         status: CONNECTION_STATUS_VALUES.CONNECTED,
         serverUrl,
-        playerId: "02:ab:cd:ef:01:23",
+        playerId: "02:ab:cd:ef:01:23" as PlayerId,
       });
     });
 

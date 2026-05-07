@@ -3,10 +3,12 @@
  * Handles persistent data storage for the PWA
  */
 
+import type { ServerUrl, Username, PlayerId } from "@utils/types";
+
 export interface StorageData {
-  serverUrl?: string;
-  username?: string;
-  playerId?: string;
+  serverUrl?: ServerUrl;
+  username?: Username;
+  playerId?: PlayerId;
   playerState?: Record<string, any>;
 }
 
@@ -71,8 +73,8 @@ class StorageService {
    * Get server configuration from storage
    */
   getServerConfig(): {
-    serverUrl: string;
-    username?: string;
+    serverUrl: ServerUrl;
+    username?: Username;
     playerName?: string;
   } | null {
     const serverUrl = this.get<string>("serverUrl");
@@ -81,8 +83,8 @@ class StorageService {
     }
 
     return {
-      serverUrl,
-      username: this.get<string>("username"),
+      serverUrl: serverUrl as ServerUrl,
+      username: this.get<string>("username") as Username | undefined,
       playerName: this.get<string>("playerName"),
     };
   }

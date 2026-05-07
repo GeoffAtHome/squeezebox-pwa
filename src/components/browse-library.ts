@@ -2,13 +2,14 @@ import { LitElement, css, html } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
 import { lmsConnection } from "@services/lms-connection";
 import type { BrowseItem } from "@services/bridge-client";
+import type { ItemId, ArtworkUrl } from "@utils/types";
 
 type LibraryEntry = {
-  id?: string;
+  id?: ItemId;
   title: string;
   subtitle?: string;
   meta?: string;
-  artworkUrl?: string;
+  artworkUrl?: ArtworkUrl;
   canOpen: boolean;
   canPlay: boolean;
   canQueue: boolean;
@@ -41,10 +42,10 @@ export class BrowseLibrary extends LitElement {
   private error = "";
 
   @state()
-  private path: Array<{ id?: string; label: string }> = [{ label: "Library" }];
+  private path: Array<{ id?: ItemId; label: string }> = [{ label: "Library" }];
 
   @state()
-  private currentItemId?: string;
+  private currentItemId?: ItemId;
 
   @state()
   private totalCount = 0;
@@ -401,7 +402,7 @@ export class BrowseLibrary extends LitElement {
   `;
 
   private async loadMenu(
-    itemId?: string,
+    itemId?: ItemId,
     nextLabel?: string,
     forceRefresh = false,
   ): Promise<void> {
@@ -562,9 +563,9 @@ export class BrowseLibrary extends LitElement {
   private toEntry(item: BrowseItem, index: number): LibraryEntry {
     const id =
       typeof item.id === "string"
-        ? item.id
+        ? (item.id as ItemId)
         : typeof item.id === "number"
-          ? String(item.id)
+          ? (String(item.id) as ItemId)
           : undefined;
 
     const rawLabel = item.text ?? item.name;
@@ -605,7 +606,7 @@ export class BrowseLibrary extends LitElement {
     }
   }
 
-  private async playItem(itemId: string): Promise<void> {
+  private async playItem(itemId: ItemId): Promise<void> {
     this.performingAction = true;
     this.error = "";
     try {
@@ -618,7 +619,7 @@ export class BrowseLibrary extends LitElement {
     }
   }
 
-  private async addToEndItem(itemId: string): Promise<void> {
+  private async addToEndItem(itemId: ItemId): Promise<void> {
     this.error = "";
     try {
       await lmsConnection.addToEndBrowseItem(itemId);

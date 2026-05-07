@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { lmsConnection } from "@services/lms-connection";
+import { type ArtworkUrl } from "@utils/types";
 import "./browse-library";
 
 describe("browse-library", () => {
@@ -98,7 +99,7 @@ describe("browse-library", () => {
           text: "Track 1",
           subtitle: "Artist 1",
           meta: "Album 1",
-          artworkUrl: "/api/artwork?token=test&trackId=1",
+          artworkUrl: "/api/artwork?token=test&trackId=1" as ArtworkUrl,
           hasitems: 0,
           canPlay: true,
           canQueue: true,
