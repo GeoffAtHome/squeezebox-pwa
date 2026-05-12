@@ -26,6 +26,9 @@ export class BrowseLibrary extends LitElement {
   @query(".load-sentinel")
   private loadSentinelEl?: HTMLElement;
 
+  @query(".filter-input")
+  private filterInputEl?: HTMLInputElement;
+
   @state()
   private entries: LibraryEntry[] = [];
 
@@ -47,11 +50,17 @@ export class BrowseLibrary extends LitElement {
   @state()
   private currentItemId?: ItemId;
 
+  private previousPath: Array<{ id?: ItemId; label: string }> | null = null;
+  private previousItemId?: ItemId;
+
   @state()
   private totalCount = 0;
 
   @state()
   private lastPageSize = 0;
+
+  @state()
+  private filterText = "";
 
   private loadMoreObserver: IntersectionObserver | null = null;
 
@@ -101,6 +110,13 @@ export class BrowseLibrary extends LitElement {
       margin: 0;
       font-size: 1rem;
       font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .header > div:last-child {
+      display: flex;
+      gap: 0.75rem;
+      flex-shrink: 0;
     }
 
     .path {
@@ -125,6 +141,27 @@ export class BrowseLibrary extends LitElement {
     .nav-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+
+    .filter-input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #3a3a3a;
+      background: #1e1e1e;
+      color: #fff;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      min-width: 150px;
+    }
+
+    .filter-input::placeholder {
+      color: #6a6a6a;
+    }
+
+    .filter-input:focus {
+      outline: none;
+      border-color: #4a4a4a;
+      background: #252530;
     }
 
     .error {
@@ -405,24 +442,29 @@ export class BrowseLibrary extends LitElement {
     itemId?: ItemId,
     nextLabel?: string,
     forceRefresh = false,
+    search?: string,
   ): Promise<void> {
     this.loadingMenu = true;
     this.error = "";
 
     try {
+      const searchTerm = search?.trim();
       const result = await lmsConnection.browseMenu({
-        itemId,
+        itemId: searchTerm ? undefined : itemId,
         start: 0,
         quantity: BrowseLibrary.PAGE_SIZE,
         forceRefresh,
+        search: searchTerm,
       });
       const items = result.item_loop ?? [];
       this.entries = items.map((item, index) => this.toEntry(item, index));
-      this.currentItemId = itemId;
+      this.currentItemId = searchTerm ? undefined : itemId;
       this.totalCount = Number(result.count ?? items.length);
       this.lastPageSize = items.length;
 
-      if (itemId && nextLabel) {
+      if (searchTerm) {
+        this.path = [{ label: `Search: ${searchTerm}` }];
+      } else if (itemId && nextLabel) {
         this.path = [...this.path, { id: itemId, label: nextLabel }];
       } else if (!itemId) {
         this.path = [{ label: "Library" }];
@@ -437,7 +479,10 @@ export class BrowseLibrary extends LitElement {
   }
 
   private get hasMoreEntries(): boolean {
-    // Root menu contains fixed sections and should not paginate.
+    if (this.filterText.trim()) {
+      return this.lastPageSize > 0;
+    }
+
     if (!this.currentItemId) {
       return false;
     }
@@ -457,9 +502,10 @@ export class BrowseLibrary extends LitElement {
     try {
       const start = this.entries.length;
       const result = await lmsConnection.browseMenu({
-        itemId: this.currentItemId,
+        itemId: this.filterText.trim() ? undefined : this.currentItemId,
         start,
         quantity: BrowseLibrary.PAGE_SIZE,
+        search: this.filterText.trim() || undefined,
       });
 
       const items = result.item_loop ?? [];
@@ -630,7 +676,24 @@ export class BrowseLibrary extends LitElement {
   }
 
   private handleBack(): void {
-    if (this.path.length <= 1 || this.loadingMenu) return;
+    if (this.loadingMenu) return;
+
+    if (this.isSearchActive) {
+      const restoreItemId = this.previousItemId;
+      const restorePath = this.previousPath;
+      this.previousItemId = undefined;
+      this.previousPath = null;
+      this.filterText = "";
+      if (restorePath) {
+        this.path = restorePath;
+      }
+      void this.loadMenu(restoreItemId, undefined, true).then(() =>
+        this.filterInputEl?.focus(),
+      );
+      return;
+    }
+
+    if (this.path.length <= 1) return;
 
     const previousPath = this.path.slice(0, -1);
     const target = previousPath[previousPath.length - 1];
@@ -641,13 +704,70 @@ export class BrowseLibrary extends LitElement {
 
   private handleRefresh(): void {
     const current = this.path[this.path.length - 1];
-    void this.loadMenu(current.id, undefined, true);
+    void this.loadMenu(
+      this.isSearchActive ? undefined : current.id,
+      undefined,
+      true,
+      this.filterText.trim() || undefined,
+    );
   }
+
+  private get isSearchActive(): boolean {
+    return this.filterText.trim().length > 0;
+  }
+
+  private getFilteredEntries(): LibraryEntry[] {
+    if (!this.isSearchActive) {
+      return this.entries;
+    }
+
+    const query = this.filterText.toLowerCase().trim();
+    return this.entries.filter((entry) =>
+      entry.title.toLowerCase().startsWith(query),
+    );
+  }
+
+  private handleFilterChange = (event: Event): void => {
+    const input = event.target as HTMLInputElement;
+    const newText = input.value;
+    const hadSearch = this.isSearchActive;
+    this.filterText = newText;
+    const searchTerm = newText.trim();
+
+    if (searchTerm) {
+      if (!hadSearch) {
+        this.previousPath = this.path;
+        this.previousItemId = this.currentItemId;
+      }
+      void this.loadMenu(undefined, undefined, true, searchTerm).then(() =>
+        this.filterInputEl?.focus(),
+      );
+      return;
+    }
+
+    if (hadSearch) {
+      const restoreItemId = this.previousItemId;
+      const restorePath = this.previousPath;
+      this.previousItemId = undefined;
+      this.previousPath = null;
+      if (restorePath) {
+        this.path = restorePath;
+      }
+      void this.loadMenu(restoreItemId, undefined, true).then(() =>
+        this.filterInputEl?.focus(),
+      );
+    }
+  };
 
   private handleMarkStale(): void {
     lmsConnection.markBrowseCacheStale();
     const current = this.path[this.path.length - 1];
-    void this.loadMenu(current.id, undefined, true);
+    void this.loadMenu(
+      this.isSearchActive ? undefined : current.id,
+      undefined,
+      true,
+      this.filterText.trim() || undefined,
+    );
   }
 
   private handleCarouselPrev(): void {
@@ -664,7 +784,7 @@ export class BrowseLibrary extends LitElement {
 
   private renderArtwork(entry: LibraryEntry) {
     if (entry.artworkUrl) {
-      return html`<img src="${entry.artworkUrl}" alt="${entry.title}" />`;
+      return html`<img .src=${entry.artworkUrl} alt="${entry.title}" />`;
     }
 
     const initials = entry.title
@@ -726,11 +846,20 @@ export class BrowseLibrary extends LitElement {
       <div class="panel">
         <div class="header">
           <h2>Browse Library</h2>
+          <input
+            type="text"
+            class="filter-input"
+            placeholder="Filter entries…"
+            .value=${this.filterText}
+            @input=${this.handleFilterChange}
+            ?disabled=${this.loadingMenu && !this.isSearchActive}
+          />
           <div>
             <button
               class="nav-btn"
               @click=${this.handleBack}
-              ?disabled=${this.path.length <= 1 || this.loadingMenu}
+              ?disabled=${!(this.isSearchActive || this.path.length > 1) ||
+              this.loadingMenu}
             >
               ← Back
             </button>
@@ -758,134 +887,136 @@ export class BrowseLibrary extends LitElement {
         ${this.loadingMenu ? html`<div class="empty">Loading…</div>` : ""}
         ${!this.loadingMenu && this.entries.length === 0
           ? html`<div class="empty">No entries available.</div>`
-          : html`
-              <div class="carousel-wrapper">
-                <button
-                  class="carousel-btn"
-                  @click=${this.handleCarouselPrev}
-                  title="Scroll left"
-                  aria-label="Previous"
-                >
-                  ‹
-                </button>
-                <ul
-                  class="carousel"
-                  @scroll=${this.handleCarouselScroll}
-                  @wheel=${this.handleCarouselWheel}
-                >
-                  ${this.entries.map(
-                    (entry) => html`
-                      <li>
-                        <div class="card">
-                          ${entry.canOpen || entry.canPlay
-                            ? html`
-                                <button
-                                  class="card-media-btn"
-                                  @click=${() => this.handleEntryClick(entry)}
-                                  ?disabled=${entry.disabled ||
-                                  this.loadingMenu ||
-                                  this.performingAction}
-                                  title=${entry.canOpen
-                                    ? `Open ${entry.title}`
-                                    : `Play ${entry.title}`}
-                                >
-                                  <div class="artwork">
-                                    ${this.renderArtwork(entry)}
+          : this.getFilteredEntries().length === 0
+            ? html`<div class="empty">No entries match your filter.</div>`
+            : html`
+                <div class="carousel-wrapper">
+                  <button
+                    class="carousel-btn"
+                    @click=${this.handleCarouselPrev}
+                    title="Scroll left"
+                    aria-label="Previous"
+                  >
+                    ‹
+                  </button>
+                  <ul
+                    class="carousel"
+                    @scroll=${this.handleCarouselScroll}
+                    @wheel=${this.handleCarouselWheel}
+                  >
+                    ${this.getFilteredEntries().map(
+                      (entry) => html`
+                        <li>
+                          <div class="card">
+                            ${entry.canOpen || entry.canPlay
+                              ? html`
+                                  <button
+                                    class="card-media-btn"
+                                    @click=${() => this.handleEntryClick(entry)}
+                                    ?disabled=${entry.disabled ||
+                                    this.loadingMenu ||
+                                    this.performingAction}
+                                    title=${entry.canOpen
+                                      ? `Open ${entry.title}`
+                                      : `Play ${entry.title}`}
+                                  >
+                                    <div class="artwork">
+                                      ${this.renderArtwork(entry)}
+                                    </div>
+                                    <div class="card-overlay">
+                                      <span class="card-type"
+                                        >${entry.canOpen
+                                          ? "Browse"
+                                          : "Play"}</span
+                                      >
+                                      <span class="card-title"
+                                        >${entry.title}</span
+                                      >
+                                      ${entry.subtitle
+                                        ? html`<span class="card-subtitle"
+                                            >${entry.subtitle}</span
+                                          >`
+                                        : ""}
+                                      ${entry.meta
+                                        ? html`<span class="card-meta"
+                                            >${entry.meta}</span
+                                          >`
+                                        : ""}
+                                    </div>
+                                  </button>
+                                `
+                              : html`
+                                  <div class="card-media">
+                                    <div class="artwork">
+                                      ${this.renderArtwork(entry)}
+                                    </div>
+                                    <div class="card-overlay">
+                                      <span class="card-type">Unavailable</span>
+                                      <span class="card-title"
+                                        >${entry.title}</span
+                                      >
+                                    </div>
                                   </div>
-                                  <div class="card-overlay">
-                                    <span class="card-type"
-                                      >${entry.canOpen
-                                        ? "Browse"
-                                        : "Play"}</span
-                                    >
-                                    <span class="card-title"
-                                      >${entry.title}</span
-                                    >
-                                    ${entry.subtitle
-                                      ? html`<span class="card-subtitle"
-                                          >${entry.subtitle}</span
-                                        >`
-                                      : ""}
-                                    ${entry.meta
-                                      ? html`<span class="card-meta"
-                                          >${entry.meta}</span
-                                        >`
-                                      : ""}
-                                  </div>
-                                </button>
-                              `
-                            : html`
-                                <div class="card-media">
-                                  <div class="artwork">
-                                    ${this.renderArtwork(entry)}
-                                  </div>
-                                  <div class="card-overlay">
-                                    <span class="card-type">Unavailable</span>
-                                    <span class="card-title"
-                                      >${entry.title}</span
-                                    >
-                                  </div>
-                                </div>
-                              `}
-                          <div class="card-actions">
-                            ${entry.canOpen && entry.id
-                              ? html`<button
-                                  class="action-btn"
-                                  title="Open ${entry.title}"
-                                  ?disabled=${this.loadingMenu ||
-                                  this.performingAction}
-                                  @click=${() => this.handleEntryClick(entry)}
-                                >
-                                  ${this.renderIcon("open")} Open
-                                </button>`
-                              : ""}
-                            ${entry.canPlay && entry.id
-                              ? html`<button
-                                  class="action-btn"
-                                  title="Play ${entry.title}"
-                                  ?disabled=${this.loadingMenu ||
-                                  this.performingAction}
-                                  @click=${() => this.playItem(entry.id!)}
-                                >
-                                  ${this.renderIcon("play")} Play
-                                </button>`
-                              : ""}
-                            ${entry.canQueue && entry.id
-                              ? html`<button
-                                  class="action-btn"
-                                  title="Queue ${entry.title}"
-                                  ?disabled=${this.loadingMenu ||
-                                  this.performingAction}
-                                  @click=${() => this.addToEndItem(entry.id!)}
-                                >
-                                  ${this.renderIcon("queue")} Queue
-                                </button>`
-                              : ""}
+                                `}
+                            <div class="card-actions">
+                              ${entry.canOpen && entry.id
+                                ? html`<button
+                                    class="action-btn"
+                                    title="Open ${entry.title}"
+                                    ?disabled=${this.loadingMenu ||
+                                    this.performingAction}
+                                    @click=${() => this.handleEntryClick(entry)}
+                                  >
+                                    ${this.renderIcon("open")} Open
+                                  </button>`
+                                : ""}
+                              ${entry.canPlay && entry.id
+                                ? html`<button
+                                    class="action-btn"
+                                    title="Play ${entry.title}"
+                                    ?disabled=${this.loadingMenu ||
+                                    this.performingAction}
+                                    @click=${() => this.playItem(entry.id!)}
+                                  >
+                                    ${this.renderIcon("play")} Play
+                                  </button>`
+                                : ""}
+                              ${entry.canQueue && entry.id
+                                ? html`<button
+                                    class="action-btn"
+                                    title="Queue ${entry.title}"
+                                    ?disabled=${this.loadingMenu ||
+                                    this.performingAction}
+                                    @click=${() => this.addToEndItem(entry.id!)}
+                                  >
+                                    ${this.renderIcon("queue")} Queue
+                                  </button>`
+                                : ""}
+                            </div>
                           </div>
-                        </div>
-                      </li>
-                    `,
-                  )}
-                  ${this.hasMoreEntries
-                    ? html`<li class="load-sentinel-item">
-                        <div class="load-sentinel" aria-hidden="true">
-                          ${this.loadingMore
-                            ? html`<span class="load-indicator"></span>`
-                            : html`<span></span>`}
-                        </div>
-                      </li>`
-                    : ""}
-                </ul>
-                <button
-                  class="carousel-btn"
-                  @click=${this.handleCarouselNext}
-                  title="Scroll right"
-                  aria-label="Next"
-                >
-                  ›
-                </button>
-              </div>
-            `}
+                        </li>
+                      `,
+                    )}
+                    ${this.hasMoreEntries
+                      ? html`<li class="load-sentinel-item">
+                          <div class="load-sentinel" aria-hidden="true">
+                            ${this.loadingMore
+                              ? html`<span class="load-indicator"></span>`
+                              : html`<span></span>`}
+                          </div>
+                        </li>`
+                      : ""}
+                  </ul>
+                  <button
+                    class="carousel-btn"
+                    @click=${this.handleCarouselNext}
+                    title="Scroll right"
+                    aria-label="Next"
+                  >
+                    ›
+                  </button>
+                </div>
+              `}
       </div>
     `;
   }

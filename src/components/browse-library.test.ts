@@ -43,6 +43,104 @@ describe("browse-library", () => {
     });
   });
 
+  it("searches the full collection when filter text is entered", async () => {
+    const browseSpy = vi.spyOn(lmsConnection, "browseMenu").mockResolvedValue({
+      item_loop: [
+        {
+          id: "track-1",
+          text: "Track 1",
+          canPlay: true,
+          canQueue: true,
+        },
+      ],
+      count: 1,
+    });
+
+    const element = document.createElement("browse-library");
+    document.body.appendChild(element);
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const input = element.shadowRoot?.querySelector(
+      ".filter-input",
+    ) as HTMLInputElement;
+    input.value = "Track";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    expect(browseSpy).toHaveBeenNthCalledWith(2, {
+      itemId: undefined,
+      start: 0,
+      quantity: 100,
+      forceRefresh: true,
+      search: "Track",
+    });
+    expect(element.shadowRoot?.textContent).toContain("Track 1");
+  });
+
+  it("keeps back enabled and clears filter when back is clicked", async () => {
+    const browseSpy = vi.spyOn(lmsConnection, "browseMenu").mockResolvedValue({
+      item_loop: [
+        {
+          id: "track-1",
+          text: "Track 1",
+          canPlay: true,
+          canQueue: true,
+        },
+      ],
+      count: 1,
+    });
+
+    const element = document.createElement("browse-library");
+    document.body.appendChild(element);
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const input = element.shadowRoot?.querySelector(
+      ".filter-input",
+    ) as HTMLInputElement;
+    input.value = "Track";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const navButtons = Array.from(
+      element.shadowRoot?.querySelectorAll(".header button") ?? [],
+    ) as HTMLButtonElement[];
+    const backButton = navButtons[0];
+
+    expect(input.disabled).toBe(false);
+    expect(backButton.disabled).toBe(false);
+
+    backButton.click();
+
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    expect(input.value).toBe("");
+    expect(browseSpy).toHaveBeenLastCalledWith({
+      itemId: undefined,
+      start: 0,
+      quantity: 100,
+      forceRefresh: true,
+      search: undefined,
+    });
+  });
+
   it("opens nested menu when an entry is clicked", async () => {
     vi.spyOn(lmsConnection, "browseMenu")
       .mockResolvedValueOnce({
