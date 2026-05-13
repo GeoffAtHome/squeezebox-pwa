@@ -5,6 +5,7 @@
 
 import {
   bridgeClient,
+  type BrowseItem,
   type BrowseResult,
   type PlayerEvent,
 } from "./bridge-client";
@@ -22,6 +23,58 @@ import type {
   Username,
 } from "@utils/types";
 import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
+
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+const getDefaultBridgeUrl = (): string => {
+  const locationHost = globalThis.location?.hostname;
+  if (!locationHost || LOCALHOST_HOSTS.has(locationHost)) {
+    return "http://localhost:5174";
+  }
+
+  return globalThis.location.origin;
+};
+
+const normalizeBridgeUrl = (bridgeUrl: string): string =>
+  bridgeUrl.replace(/\/+$/, "");
+
+const qualifyArtworkUrl = (
+  url: string | ArtworkUrl | undefined,
+  bridgeUrl = import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
+): ArtworkUrl | undefined => {
+  if (!url) return undefined;
+  const normalized = String(url).trim();
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized as ArtworkUrl;
+  }
+
+  return `${normalizeBridgeUrl(bridgeUrl)}${normalized.startsWith("/") ? "" : "/"}${normalized}` as ArtworkUrl;
+};
+
+const normalizeBrowseItemArtwork = (
+  item: BrowseItem,
+  bridgeUrl = import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
+  token?: string,
+): ArtworkUrl | undefined => {
+  const explicit = qualifyArtworkUrl(item.artworkUrl, bridgeUrl);
+  if (explicit) {
+    return explicit;
+  }
+
+  if (!token || item.id === undefined || item.id === null) {
+    return undefined;
+  }
+
+  const rawId = String(item.id);
+  const idSuffix = rawId.includes(":") ? rawId.split(":", 2)[1] : rawId;
+  if (!idSuffix) {
+    return undefined;
+  }
+
+  return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
+    token,
+  )}&trackId=${encodeURIComponent(idSuffix)}` as ArtworkUrl;
+};
 
 export interface ConnectionState {
   status: ConnectionStatus;
@@ -55,7 +108,7 @@ type BrowseWarmTarget = {
 };
 
 class LmsConnectionService {
-  private static readonly BROWSE_PREFETCH_PAGE_SIZE = 100;
+  private static readonly BROWSE_PREFETCH_PAGE_SIZE = 1000;
   private static readonly BROWSE_PREFETCH_TARGETS: BrowseWarmTarget[] = [
     { itemId: "section:artists" as ItemId, label: "artists" },
     { itemId: "section:albums" as ItemId, label: "albums" },
@@ -334,7 +387,7 @@ class LmsConnectionService {
       cached &&
       cached.generation === this.browseCacheGeneration
     ) {
-      return cached.result;
+      return this.qualifyBrowseResult(cached.result);
     }
 
     const result = await bridgeClient.browse(
@@ -525,9 +578,27 @@ class LmsConnectionService {
     for (const [key, result] of Object.entries(persisted)) {
       this.browseCache.set(key, {
         generation: this.browseCacheGeneration,
-        result,
+        result: this.qualifyBrowseResult(result),
       });
     }
+  }
+
+  private qualifyBrowseResult(result: BrowseResult): BrowseResult {
+    if (!Array.isArray(result.item_loop)) {
+      return result;
+    }
+
+    return {
+      ...result,
+      item_loop: result.item_loop.map((item) => ({
+        ...item,
+        artworkUrl: normalizeBrowseItemArtwork(
+          item,
+          import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
+          this.sessionToken ?? undefined,
+        ),
+      })),
+    };
   }
 
   private async persistBrowseCacheEntry(

@@ -168,6 +168,7 @@ type LmsBrowseEntry = {
   type?: string;
   coverid?: string | number;
   artwork_url?: string;
+  artwork_id?: string | number;
   duration?: string | number;
   tracknum?: string | number;
 };
@@ -343,7 +344,7 @@ const joinMeta = (...parts: Array<string | undefined>): string | undefined => {
 
 const buildBrowseArtworkUrl = (
   session: Session | undefined,
-  entry: Pick<LmsBrowseEntry, "id" | "coverid" | "artwork_url">,
+  entry: Pick<LmsBrowseEntry, "id" | "coverid" | "artwork_url" | "artwork_id">,
 ): string | undefined => {
   if (!session) {
     return undefined;
@@ -922,6 +923,7 @@ const buildArtworkProxyUrl = (
     id?: string | number;
     artwork_url?: string;
     coverid?: string | number;
+    artwork_id?: string | number;
   },
 ): string | undefined => {
   const artworkPath = normalizeArtworkPath(
@@ -939,6 +941,13 @@ const buildArtworkProxyUrl = (
     return buildSessionUrl("/api/artwork", {
       token: session.token,
       coverid: String(current.coverid),
+    });
+  }
+
+  if (current?.artwork_id !== undefined && current.artwork_id !== null) {
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      trackId: String(current.artwork_id),
     });
   }
 
@@ -965,10 +974,8 @@ const refreshPlayerStatus = async (session: Session): Promise<void> => {
   try {
     const status = await callJsonRpc<LmsStatusResponse>(session.config, [
       session.mac,
-      // tags: a=artist, d=duration, K=artwork_url, l=album, c=coverid, e=album_id, t=tracknum
-      ["status", "-", 1, "tags:adKlcet"],
+      ["status", "-", "1", "tags:adKlcejt"],
     ]);
-
     const current = status.playlist_loop?.[0];
     const level = Number(status["mixer volume"] ?? NaN);
     if (!Number.isNaN(level)) {
@@ -1843,7 +1850,7 @@ const handleRequest = async (
         typeof payload.quantity === "number" &&
         Number.isFinite(payload.quantity)
           ? Math.max(1, Math.floor(payload.quantity))
-          : 100;
+          : 1000;
       const itemId =
         typeof payload.itemId === "string" && payload.itemId.trim()
           ? payload.itemId.trim()

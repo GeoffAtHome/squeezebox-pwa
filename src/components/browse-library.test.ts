@@ -141,6 +141,69 @@ describe("browse-library", () => {
     });
   });
 
+  it("filters artists by name within a section using client-side filtering", async () => {
+    const browseSpy = vi
+      .spyOn(lmsConnection, "browseMenu")
+      .mockResolvedValueOnce({
+        item_loop: [
+          {
+            id: "section:artists",
+            text: "Artists",
+            hasitems: 1,
+            canOpen: true,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        item_loop: [
+          { id: "artist-1", text: "ABC", canOpen: true, hasitems: 1 },
+          { id: "artist-2", text: "ABBC", canOpen: true, hasitems: 1 },
+          { id: "artist-3", text: "Other Band", canOpen: true, hasitems: 1 },
+        ],
+        count: 3,
+      });
+
+    const element = document.createElement("browse-library");
+    document.body.appendChild(element);
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    // Click Artists section
+    const firstEntryButton = element.shadowRoot?.querySelector(
+      'button[title="Open Artists"]',
+    ) as HTMLButtonElement;
+    firstEntryButton.click();
+
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    expect(element.shadowRoot?.textContent).toContain("ABC");
+    expect(element.shadowRoot?.textContent).toContain("ABBC");
+    expect(element.shadowRoot?.textContent).toContain("Other Band");
+
+    // Now filter for "AB"
+    const input = element.shadowRoot?.querySelector(
+      ".filter-input",
+    ) as HTMLInputElement;
+    input.value = "AB";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    // Should only show ABC and ABBC (not Other Band)
+    // and should NOT call loadMenu() again
+    expect(browseSpy).toHaveBeenCalledTimes(2);
+    expect(element.shadowRoot?.textContent).toContain("ABC");
+    expect(element.shadowRoot?.textContent).toContain("ABBC");
+    expect(element.shadowRoot?.textContent).not.toContain("Other Band");
+  });
+
   it("opens nested menu when an entry is clicked", async () => {
     vi.spyOn(lmsConnection, "browseMenu")
       .mockResolvedValueOnce({

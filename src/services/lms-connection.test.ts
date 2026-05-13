@@ -19,6 +19,7 @@ const loadSubject = async (options?: {
   >;
 }) => {
   vi.resetModules();
+  vi.stubEnv("VITE_BRIDGE_URL", "http://localhost:5174");
 
   const storageMap = new Map<string, unknown>(
     Object.entries(options?.storageData ?? {}),
@@ -384,7 +385,13 @@ describe("lmsConnection", () => {
     const playerId = "02:00:00:aa:bb:cc";
     const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
-      item_loop: [{ id: "myapps", text: "My Apps" }],
+      item_loop: [
+        {
+          id: "myapps",
+          text: "My Apps",
+          artworkUrl: "/api/artwork?token=test&trackId=1",
+        },
+      ],
     };
 
     const { lmsConnection, mockBrowse } = await loadSubject({
@@ -413,7 +420,66 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
-    expect(result).toEqual(cachedResult);
+    expect(result).toEqual({
+      item_loop: [
+        {
+          id: "myapps",
+          text: "My Apps",
+          artworkUrl: "http://localhost:5174/api/artwork?token=test&trackId=1",
+        },
+      ],
+    });
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("adds fallback artwork URLs for cached browse items missing artwork metadata", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheContext = `http://localhost:9000::${playerId}`;
+    const cachedResult = {
+      item_loop: [
+        {
+          id: "album:1",
+          text: "Uncached Album",
+        },
+      ],
+    };
+
+    const { lmsConnection, mockBrowse } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+      },
+      browseCacheData: {
+        [cacheContext]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const result = await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
+
+    expect(result).toEqual({
+      item_loop: [
+        {
+          id: "album:1",
+          text: "Uncached Album",
+          artworkUrl:
+            "http://localhost:5174/api/artwork?token=test-token&trackId=1",
+        },
+      ],
+    });
     expect(mockBrowse).not.toHaveBeenCalled();
   });
 

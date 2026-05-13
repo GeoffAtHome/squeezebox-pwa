@@ -18,7 +18,7 @@ type LibraryEntry = {
 
 @customElement("browse-library")
 export class BrowseLibrary extends LitElement {
-  private static readonly PAGE_SIZE = 100;
+  private static readonly PAGE_SIZE = 1000;
 
   @query(".carousel")
   private carouselEl?: HTMLElement;
@@ -438,6 +438,82 @@ export class BrowseLibrary extends LitElement {
     /* ── Scroll nav (progressive enhancement) ───── */
   `;
 
+  /**
+   * Load all remaining entries from the current section.
+   * Called when filtering starts to ensure the entire collection is available for client-side filtering.
+   */
+  private async loadAllRemainingEntries(): Promise<void> {
+    if (!this.currentItemId || !this.hasMoreEntries) {
+      return;
+    }
+
+    if (
+      Number.isFinite(this.totalCount) &&
+      this.entries.length >= this.totalCount
+    ) {
+      return;
+    }
+
+    try {
+      let hasMore = true;
+      while (hasMore && this.hasMoreEntries) {
+        const start = this.entries.length;
+        if (Number.isFinite(this.totalCount) && start >= this.totalCount) {
+          break;
+        }
+
+        const result = await lmsConnection.browseMenu({
+          itemId: this.currentItemId,
+          start,
+          quantity: BrowseLibrary.PAGE_SIZE,
+        });
+
+        const items = result.item_loop ?? [];
+        if (items.length === 0) {
+          this.lastPageSize = 0;
+          break;
+        }
+
+        const mapped = items.map((item, index) =>
+          this.toEntry(item, start + index),
+        );
+
+        const existingKeys = new Set(
+          this.entries.map((entry) => `${entry.id ?? ""}|${entry.title}`),
+        );
+        const uniqueMapped = mapped.filter(
+          (entry) => !existingKeys.has(`${entry.id ?? ""}|${entry.title}`),
+        );
+
+        if (uniqueMapped.length === 0) {
+          this.lastPageSize = 0;
+          break;
+        }
+
+        this.entries = [...this.entries, ...uniqueMapped];
+        this.lastPageSize = uniqueMapped.length;
+        this.totalCount = Math.max(
+          this.totalCount,
+          Number(result.count ?? this.entries.length),
+        );
+
+        if (
+          !Number.isFinite(result.count) &&
+          items.length < BrowseLibrary.PAGE_SIZE
+        ) {
+          hasMore = false;
+        } else if (
+          Number.isFinite(this.totalCount) &&
+          this.entries.length >= this.totalCount
+        ) {
+          hasMore = false;
+        }
+      }
+    } catch (error) {
+      console.error("[browse-library] Error loading remaining entries:", error);
+    }
+  }
+
   private async loadMenu(
     itemId?: ItemId,
     nextLabel?: string,
@@ -473,6 +549,7 @@ export class BrowseLibrary extends LitElement {
       this.error =
         error instanceof Error ? error.message : "Failed to load library";
       this.entries = [];
+      console.error("[browse-library] Error loading menu:", error);
     } finally {
       this.loadingMenu = false;
     }
@@ -501,11 +578,16 @@ export class BrowseLibrary extends LitElement {
 
     try {
       const start = this.entries.length;
+      const isSectionFilter = Boolean(
+        this.currentItemId && this.filterText.trim(),
+      );
       const result = await lmsConnection.browseMenu({
-        itemId: this.filterText.trim() ? undefined : this.currentItemId,
+        itemId: this.currentItemId,
         start,
         quantity: BrowseLibrary.PAGE_SIZE,
-        search: this.filterText.trim() || undefined,
+        search: isSectionFilter
+          ? undefined
+          : this.filterText.trim() || undefined,
       });
 
       const items = result.item_loop ?? [];
@@ -734,6 +816,18 @@ export class BrowseLibrary extends LitElement {
     this.filterText = newText;
     const searchTerm = newText.trim();
 
+    // If we're within a section (browsing Artists, Albums, etc.),
+    // load all remaining entries so filter can search the full collection
+    if (this.currentItemId) {
+      if (searchTerm && !hadSearch) {
+        // Filter just activated - load all remaining entries first
+        void this.loadAllRemainingEntries();
+      }
+      // Client-side filtering will be applied via getFilteredEntries()
+      return;
+    }
+
+    // At root level, do global search on new query
     if (searchTerm) {
       if (!hadSearch) {
         this.previousPath = this.path;
