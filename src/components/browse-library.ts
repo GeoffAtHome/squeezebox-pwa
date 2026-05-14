@@ -16,6 +16,12 @@ type LibraryEntry = {
   disabled: boolean;
 };
 
+type PathSegment = {
+  id?: ItemId;
+  label: string;
+  filter?: string; // Cached filter text for this level
+};
+
 @customElement("browse-library")
 export class BrowseLibrary extends LitElement {
   private static readonly PAGE_SIZE = 1000;
@@ -45,12 +51,12 @@ export class BrowseLibrary extends LitElement {
   private error = "";
 
   @state()
-  private path: Array<{ id?: ItemId; label: string }> = [{ label: "Library" }];
+  private path: PathSegment[] = [{ label: "Library" }];
 
   @state()
   private currentItemId?: ItemId;
 
-  private previousPath: Array<{ id?: ItemId; label: string }> | null = null;
+  private previousPath: PathSegment[] | null = null;
   private previousItemId?: ItemId;
 
   @state()
@@ -725,6 +731,13 @@ export class BrowseLibrary extends LitElement {
     if (!entry.id || this.loadingMenu || this.performingAction) return;
 
     if (entry.canOpen) {
+      // Save current filter to this level before navigating down
+      const currentSegment = this.path[this.path.length - 1];
+      if (currentSegment) {
+        currentSegment.filter = this.filterText;
+      }
+      // Clear filter when entering a child level
+      this.filterText = "";
       void this.loadMenu(entry.id, entry.title);
       return;
     }
@@ -780,6 +793,9 @@ export class BrowseLibrary extends LitElement {
     const previousPath = this.path.slice(0, -1);
     const target = previousPath[previousPath.length - 1];
     this.path = previousPath;
+
+    // Restore the filter from the level we're returning to
+    this.filterText = target.filter ?? "";
 
     void this.loadMenu(target.id);
   }
