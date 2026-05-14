@@ -391,7 +391,7 @@ const browseLibrary = async (
       titles_loop?: LmsBrowseEntry[];
       song_loop?: LmsBrowseEntry[];
       count?: number;
-    }>(config, [0, ["titles", start, quantity, `search:${search}`]]);
+    }>(config, [0, ["titles", start, quantity, `search:${search}`, "tags:adKlcejt"]]);
 
     return {
       item_loop: mapQueryItems(
@@ -461,7 +461,7 @@ const browseLibrary = async (
             albums_loop?: LmsBrowseEntry[];
             album_loop?: LmsBrowseEntry[];
             count?: number;
-          }>(config, [0, ["albums", start, quantity, "tags:aljKce"]]);
+          }>(config, [0, ["albums", start, quantity, "tags:alcsKje"]]);
 
           return {
             item_loop: mapQueryItems(
@@ -498,7 +498,7 @@ const browseLibrary = async (
             titles_loop?: LmsBrowseEntry[];
             song_loop?: LmsBrowseEntry[];
             count?: number;
-          }>(config, [0, ["titles", start, quantity]]);
+          }>(config, [0, ["titles", start, quantity, "tags:adKlcejt"]]);
 
           return {
             item_loop: mapQueryItems(
@@ -679,7 +679,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `artist_id:${target.value}`, "tags:aljKce"],
+        ["albums", start, quantity, `artist_id:${target.value}`, "tags:alcsKje"],
       ]);
 
       return {
@@ -716,7 +716,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `genre_id:${target.value}`, "tags:aljKce"],
+        ["albums", start, quantity, `genre_id:${target.value}`, "tags:alcsKje"],
       ]);
 
       return {
@@ -753,7 +753,7 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `year:${target.value}`, "tags:aljKce"],
+        ["albums", start, quantity, `year:${target.value}`, "tags:alcsKje"],
       ]);
 
       return {
@@ -796,6 +796,7 @@ const browseLibrary = async (
           quantity,
           `album_id:${target.value}`,
           "sort:albumtrack",
+          "tags:adKlcejt",
         ],
       ]);
 
@@ -834,7 +835,14 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["playlists", "tracks", start, quantity, `playlist_id:${target.value}`],
+        [
+          "playlists",
+          "tracks",
+          start,
+          quantity,
+          `playlist_id:${target.value}`,
+          "tags:adKlcejt",
+        ],
       ]);
 
       return {
@@ -868,7 +876,13 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["musicfolder", start, quantity, `folder_id:${target.value}`],
+        [
+          "musicfolder",
+          start,
+          quantity,
+          `folder_id:${target.value}`,
+          "tags:adKlcejt",
+        ],
       ]);
 
       return {

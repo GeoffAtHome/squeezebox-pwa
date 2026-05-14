@@ -713,7 +713,7 @@ export class BrowseLibrary extends LitElement {
       title,
       subtitle: item.subtitle,
       meta: item.meta,
-      artworkUrl: item.artworkUrl,
+      artworkUrl: item.artworkUrl ?? lmsConnection.getBrowseArtworkUrl(item),
       canOpen,
       canPlay,
       canQueue,

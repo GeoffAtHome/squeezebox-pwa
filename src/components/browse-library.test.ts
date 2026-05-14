@@ -38,9 +38,45 @@ describe("browse-library", () => {
     expect(lmsConnection.browseMenu).toHaveBeenCalledWith({
       itemId: undefined,
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       forceRefresh: false,
     });
+  });
+
+  it("uses a browse artwork fallback when item artwork is missing", async () => {
+    vi.spyOn(lmsConnection, "browseMenu").mockResolvedValue({
+      item_loop: [
+        {
+          id: "track-1",
+          text: "Track 1",
+          subtitle: "Artist 1",
+          meta: "Album 1",
+          hasitems: 0,
+          canPlay: true,
+          canQueue: true,
+        },
+      ],
+    });
+
+    vi.spyOn(lmsConnection, "getBrowseArtworkUrl").mockReturnValue(
+      "/api/artwork?token=test&trackId=1" as ArtworkUrl,
+    );
+
+    const element = document.createElement("browse-library");
+    document.body.appendChild(element);
+
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+    await Promise.resolve();
+    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
+      .updateComplete;
+
+    const artworkImage = element.shadowRoot?.querySelector(
+      ".artwork img",
+    ) as HTMLImageElement | null;
+
+    expect(artworkImage).toBeTruthy();
+    expect(artworkImage?.src).toContain("/api/artwork?token=test&trackId=1");
   });
 
   it("searches the full collection when filter text is entered", async () => {
@@ -78,7 +114,7 @@ describe("browse-library", () => {
     expect(browseSpy).toHaveBeenNthCalledWith(2, {
       itemId: undefined,
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       forceRefresh: true,
       search: "Track",
     });
@@ -135,7 +171,7 @@ describe("browse-library", () => {
     expect(browseSpy).toHaveBeenLastCalledWith({
       itemId: undefined,
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       forceRefresh: true,
       search: undefined,
     });
@@ -246,7 +282,7 @@ describe("browse-library", () => {
     expect(lmsConnection.browseMenu).toHaveBeenNthCalledWith(2, {
       itemId: "myapps",
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       forceRefresh: false,
     });
     expect(element.shadowRoot?.textContent).toContain("Radio");
@@ -405,7 +441,7 @@ describe("browse-library", () => {
     expect(browseSpy).toHaveBeenNthCalledWith(2, {
       itemId: undefined,
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       forceRefresh: true,
     });
   });
@@ -455,7 +491,7 @@ describe("browse-library", () => {
     expect(browseSpy).toHaveBeenNthCalledWith(2, {
       itemId: "section:tracks",
       start: 100,
-      quantity: 100,
+      quantity: 1000,
     });
     expect(element.shadowRoot?.textContent).toContain("Track 150");
   });

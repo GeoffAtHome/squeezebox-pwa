@@ -46,6 +46,9 @@ export interface BrowseItem {
   subtitle?: string;
   meta?: string;
   artworkUrl?: ArtworkUrl;
+  artwork_url?: string;
+  coverid?: string | number;
+  artwork_id?: string | number;
   type?: string;
   hasitems?: number | boolean;
   canOpen?: boolean;

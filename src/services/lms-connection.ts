@@ -56,19 +56,50 @@ const normalizeBrowseItemArtwork = (
   bridgeUrl = import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
   token?: string,
 ): ArtworkUrl | undefined => {
-  const explicit = qualifyArtworkUrl(item.artworkUrl, bridgeUrl);
+  const explicit = qualifyArtworkUrl(
+    item.artworkUrl ?? item.artwork_url,
+    bridgeUrl,
+  );
   if (explicit) {
     return explicit;
   }
 
-  if (!token || item.id === undefined || item.id === null) {
+  if (!token) {
     return undefined;
   }
 
-  const rawId = String(item.id);
+  if (item.coverid !== undefined && item.coverid !== null) {
+    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
+      token,
+    )}&coverid=${encodeURIComponent(String(item.coverid))}` as ArtworkUrl;
+  }
+
+  if (item.artwork_id !== undefined && item.artwork_id !== null) {
+    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
+      token,
+    )}&trackId=${encodeURIComponent(String(item.artwork_id))}` as ArtworkUrl;
+  }
+
+  if (item.id === undefined || item.id === null) {
+    return undefined;
+  }
+
+  const rawId = String(item.id).trim();
+  if (!rawId) {
+    return undefined;
+  }
+
   const idSuffix = rawId.includes(":") ? rawId.split(":", 2)[1] : rawId;
   if (!idSuffix) {
     return undefined;
+  }
+
+  // For album items (type="album" or id starts with "album:"), try coverid first as fallback
+  const isAlbumItem = item.type === "album" || rawId.startsWith("album:");
+  if (isAlbumItem) {
+    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
+      token,
+    )}&coverid=${encodeURIComponent(idSuffix)}` as ArtworkUrl;
   }
 
   return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
@@ -599,6 +630,14 @@ class LmsConnectionService {
         ),
       })),
     };
+  }
+
+  getBrowseArtworkUrl(item: BrowseItem): ArtworkUrl | undefined {
+    return normalizeBrowseItemArtwork(
+      item,
+      import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
+      this.sessionToken ?? undefined,
+    );
   }
 
   private async persistBrowseCacheEntry(

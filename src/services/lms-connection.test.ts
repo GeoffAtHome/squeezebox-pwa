@@ -476,7 +476,166 @@ describe("lmsConnection", () => {
           id: "album:1",
           text: "Uncached Album",
           artworkUrl:
-            "http://localhost:5174/api/artwork?token=test-token&trackId=1",
+            "http://localhost:5174/api/artwork?token=test-token&coverid=1",
+        },
+      ],
+    });
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("prefers coverid artwork fallback when cached browse item includes coverid", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheContext = `http://localhost:9000::${playerId}`;
+    const cachedResult = {
+      item_loop: [
+        {
+          id: "album:1",
+          text: "Uncached Album",
+          coverid: "5d535ce3",
+        },
+      ],
+    };
+
+    const { lmsConnection, mockBrowse } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+      },
+      browseCacheData: {
+        [cacheContext]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const result = await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
+
+    expect(result).toEqual({
+      item_loop: [
+        {
+          id: "album:1",
+          text: "Uncached Album",
+          coverid: "5d535ce3",
+          artworkUrl:
+            "http://localhost:5174/api/artwork?token=test-token&coverid=5d535ce3",
+        },
+      ],
+    });
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("uses artwork_url fallback when browse item includes artwork_url", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheContext = `http://localhost:9000::${playerId}`;
+    const cachedResult = {
+      item_loop: [
+        {
+          id: "track:1",
+          text: "Uncached Track",
+          artwork_url: "/music/1/cover.jpg",
+        },
+      ],
+    };
+
+    const { lmsConnection, mockBrowse } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+      },
+      browseCacheData: {
+        [cacheContext]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const result = await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
+
+    expect(result).toEqual({
+      item_loop: [
+        {
+          id: "track:1",
+          text: "Uncached Track",
+          artwork_url: "/music/1/cover.jpg",
+          artworkUrl: "http://localhost:5174/music/1/cover.jpg",
+        },
+      ],
+    });
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("uses album ID as coverid fallback when browse album lacks coverid", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheContext = `http://localhost:9000::${playerId}`;
+    const cachedResult = {
+      item_loop: [
+        {
+          id: "album:42",
+          text: "Album Without Cover",
+          type: "album",
+          // note: no coverid or artwork_id
+        },
+      ],
+    };
+
+    const { lmsConnection, mockBrowse } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+      },
+      browseCacheData: {
+        [cacheContext]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"myapps","start":0,"quantity":50}': cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    const result = await lmsConnection.browseMenu({
+      itemId: "myapps" as ItemId,
+      quantity: 50,
+    });
+
+    expect(result).toEqual({
+      item_loop: [
+        {
+          id: "album:42",
+          text: "Album Without Cover",
+          type: "album",
+          artworkUrl:
+            "http://localhost:5174/api/artwork?token=test-token&coverid=42",
         },
       ],
     });
@@ -532,18 +691,30 @@ describe("lmsConnection", () => {
 
     await lmsConnection.warmBrowseCacheInBackground();
 
-    expect(mockBrowse).toHaveBeenCalledTimes(5);
+    expect(mockBrowse).toHaveBeenCalledTimes(4);
 
     expect(mockBrowse.mock.calls[0]?.[1]).toEqual({
       itemId: "section:artists",
       start: 0,
-      quantity: 100,
+      quantity: 1000,
       search: undefined,
     });
     expect(mockBrowse.mock.calls[1]?.[1]).toEqual({
-      itemId: "section:artists",
-      start: 100,
-      quantity: 100,
+      itemId: "section:albums",
+      start: 0,
+      quantity: 1000,
+      search: undefined,
+    });
+    expect(mockBrowse.mock.calls[2]?.[1]).toEqual({
+      itemId: "section:tracks",
+      start: 0,
+      quantity: 1000,
+      search: undefined,
+    });
+    expect(mockBrowse.mock.calls[3]?.[1]).toEqual({
+      itemId: "section:playlists",
+      start: 0,
+      quantity: 1000,
       search: undefined,
     });
   });
