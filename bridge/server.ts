@@ -936,13 +936,14 @@ const buildArtworkProxyUrl = (
   session: Session,
   current?: {
     id?: string | number;
+    artwork_track_id?: string;
     artwork_url?: string;
     coverid?: string | number;
     artwork_id?: string | number;
   },
 ): string | undefined => {
   const artworkPath = normalizeArtworkPath(
-    current?.artwork_url,
+    current?.artwork_track_id ?? current?.artwork_url,
     session.config.serverUrl,
   );
   if (artworkPath) {
@@ -956,6 +957,13 @@ const buildArtworkProxyUrl = (
     return buildSessionUrl("/api/artwork", {
       token: session.token,
       coverid: String(current.coverid),
+    });
+  }
+
+  if (current?.artwork_track_id !== undefined && current.artwork_track_id !== null) {
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      trackId: String(current.artwork_track_id),
     });
   }
 

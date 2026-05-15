@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.19.19",
     "@vitest/ui": "^2.1.0",
     "jsdom": "^25.0.0",
     "typescript": "^6.0.3",

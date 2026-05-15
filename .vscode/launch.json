@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        // 1. Debug Bridge Server (Node.js process running bridge/server.ts)
+        {
+            "name": "Debug Bridge Server",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/bridge/server.js",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            // If the bridge server requires specific environment variables (like LMS_SERVER), add them here:
+            "env": {
+                "NODE_ENV": "development"
+            }
+        },
+        // 2. Debug PWA Frontend (Starts the development server)
+        {
+            "name": "Debug PWA Client",
+            "type": "node",
+            "request": "launch",
+            // This assumes 'npm run dev' is the correct command to start the client/PWA build process.
+            // If your frontend uses a specific tool (like Vite), you might need to adjust this.
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "dev"], 
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        }
+    ]
+}
