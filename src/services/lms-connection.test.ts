@@ -420,19 +420,20 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
+    // artworkUrl is removed from cached results to prevent stale tokens.
+    // It will be reconstructed on-demand via getBrowseArtworkUrl() with the current session token.
     expect(result).toEqual({
       item_loop: [
         {
           id: "myapps",
           text: "My Apps",
-          artworkUrl: "http://localhost:5174/api/artwork?token=test&trackId=1",
         },
       ],
     });
     expect(mockBrowse).not.toHaveBeenCalled();
   });
 
-  it("adds fallback artwork URLs for cached browse items missing artwork metadata", async () => {
+  it("preserves cached browse items without adding artworkUrl to the cache", async () => {
     const playerId = "02:00:00:aa:bb:cc";
     const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
@@ -470,20 +471,20 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
+    // Cached items should NOT have artworkUrl added by qualifyBrowseResult.
+    // The artworkUrl will be reconstructed on-demand via getBrowseArtworkUrl().
     expect(result).toEqual({
       item_loop: [
         {
           id: "album:1",
           text: "Uncached Album",
-          artworkUrl:
-            "http://localhost:5174/api/artwork?token=test-token&coverid=1",
         },
       ],
     });
     expect(mockBrowse).not.toHaveBeenCalled();
   });
 
-  it("prefers coverid artwork fallback when cached browse item includes coverid", async () => {
+  it("preserves coverid in cached items for on-demand artworkUrl reconstruction", async () => {
     const playerId = "02:00:00:aa:bb:cc";
     const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
@@ -522,21 +523,21 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
+    // Cached items preserve identifiers but don't include artworkUrl.
+    // getBrowseArtworkUrl() will reconstruct the URL with the current token.
     expect(result).toEqual({
       item_loop: [
         {
           id: "album:1",
           text: "Uncached Album",
           coverid: "5d535ce3",
-          artworkUrl:
-            "http://localhost:5174/api/artwork?token=test-token&coverid=5d535ce3",
         },
       ],
     });
     expect(mockBrowse).not.toHaveBeenCalled();
   });
 
-  it("uses artwork_url fallback when browse item includes artwork_url", async () => {
+  it("preserves artwork_url in cached items for on-demand artworkUrl reconstruction", async () => {
     const playerId = "02:00:00:aa:bb:cc";
     const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
@@ -575,20 +576,21 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
+    // Cached items preserve identifiers but don't include artworkUrl.
+    // getBrowseArtworkUrl() will reconstruct the URL with the current token.
     expect(result).toEqual({
       item_loop: [
         {
           id: "track:1",
           text: "Uncached Track",
           artwork_url: "/music/1/cover.jpg",
-          artworkUrl: "http://localhost:5174/music/1/cover.jpg",
         },
       ],
     });
     expect(mockBrowse).not.toHaveBeenCalled();
   });
 
-  it("uses album ID as coverid fallback when browse album lacks coverid", async () => {
+  it("preserves item ID in cached albums for on-demand artworkUrl reconstruction fallback", async () => {
     const playerId = "02:00:00:aa:bb:cc";
     const cacheContext = `http://localhost:9000::${playerId}`;
     const cachedResult = {
@@ -628,18 +630,63 @@ describe("lmsConnection", () => {
       quantity: 50,
     });
 
+    // Cached items preserve identifiers but don't include artworkUrl.
+    // getBrowseArtworkUrl() will use ID as fallback when coverid is missing.
     expect(result).toEqual({
       item_loop: [
         {
           id: "album:42",
           text: "Album Without Cover",
           type: "album",
-          artworkUrl:
-            "http://localhost:5174/api/artwork?token=test-token&coverid=42",
         },
       ],
     });
     expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it("reconstructs artworkUrl on-demand for cached items with current session token", async () => {
+    const playerId = "02:00:00:aa:bb:cc";
+    const cacheContext = `http://localhost:9000::${playerId}`;
+    const cachedResult = {
+      item_loop: [
+        {
+          id: "album:100",
+          text: "Cached Album",
+          coverid: "abc123",
+          artwork_id: "track-999",
+        },
+      ],
+    };
+
+    const { lmsConnection } = await loadSubject({
+      storageData: {
+        browseCacheStaleMarker: 0,
+      },
+      browseCacheData: {
+        [cacheContext]: {
+          staleMarker: 0,
+          entries: {
+            '{"itemId":"section:albums","start":0,"quantity":1000}':
+              cachedResult,
+          },
+        },
+      },
+    });
+
+    await lmsConnection.connect(
+      "http://localhost:9000",
+      "SlimpMP3",
+      "hiwiccp",
+      "My Player",
+    );
+
+    // Verify that getBrowseArtworkUrl reconstructs URLs using the current session token
+    const item = cachedResult.item_loop[0];
+    const artworkUrl = lmsConnection.getBrowseArtworkUrl(item);
+
+    expect(artworkUrl).toBe(
+      "http://localhost:5174/api/artwork?token=test-token&coverid=abc123",
+    );
   });
 
   it("warms browse cache in the background in artists, albums, tracks, playlists order", async () => {

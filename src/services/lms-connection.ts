@@ -38,73 +38,95 @@ const getDefaultBridgeUrl = (): string => {
 const normalizeBridgeUrl = (bridgeUrl: string): string =>
   bridgeUrl.replace(/\/+$/, "");
 
-const qualifyArtworkUrl = (
-  url: string | ArtworkUrl | undefined,
-  bridgeUrl = import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
-): ArtworkUrl | undefined => {
-  if (!url) return undefined;
-  const normalized = String(url).trim();
-  if (/^https?:\/\//i.test(normalized)) {
-    return normalized as ArtworkUrl;
+/** Artwork cache data structure */
+interface ArtworkCacheData {
+  coverid?: string | number;
+  artworkId?: string | number;
+  itemId?: string | number;
+  fallbackArtworkUrl?: string; // For when no specific ID is found
+}
+
+/**
+ * Extracts cacheable artwork identifiers from a BrowseItem.
+ */
+const extractArtworkCacheData = (
+  item: BrowseItem,
+): ArtworkCacheData | undefined => {
+  let cacheData: ArtworkCacheData = {};
+
+  // 1. Check for explicit URL first (if it's already absolute)
+  if (item.artworkUrl && /^https?:\/\//i.test(String(item.artworkUrl))) {
+    cacheData.fallbackArtworkUrl = String(item.artworkUrl);
+    return cacheData;
   }
 
-  return `${normalizeBridgeUrl(bridgeUrl)}${normalized.startsWith("/") ? "" : "/"}${normalized}` as ArtworkUrl;
+  // 2. Check for coverid
+  if (item.coverid !== undefined && item.coverid !== null) {
+    cacheData.coverid = item.coverid;
+  }
+
+  // 3. Check for artwork_id
+  if (item.artwork_id !== undefined && item.artwork_id !== null) {
+    cacheData.artworkId = item.artwork_id;
+  }
+
+  // 4. Fallback to general ID if nothing else is found
+  if (
+    !cacheData.coverid &&
+    !cacheData.artworkId &&
+    item.id !== undefined &&
+    item.id !== null
+  ) {
+    cacheData.itemId = item.id;
+  }
+
+  return Object.keys(cacheData).length > 0 ? cacheData : undefined;
 };
 
+/**
+ * Generates the artwork URL for a given BrowseItem, using caching logic.
+ */
 const normalizeBrowseItemArtwork = (
   item: BrowseItem,
   bridgeUrl = import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
   token?: string,
 ): ArtworkUrl | undefined => {
-  const explicit = qualifyArtworkUrl(
-    item.artworkUrl ?? item.artwork_url,
-    bridgeUrl,
-  );
-  if (explicit) {
-    return explicit;
+  // 1. Extract cache data from the item
+  const cacheData = extractArtworkCacheData(item);
+
+  if (!cacheData) return undefined;
+
+  // 2. Try to use the fallback URL if provided and it's absolute
+  if (
+    cacheData.fallbackArtworkUrl &&
+    /^https?:\/\//i.test(cacheData.fallbackArtworkUrl)
+  ) {
+    return cacheData.fallbackArtworkUrl as ArtworkUrl;
   }
 
-  if (!token) {
-    return undefined;
+  // 3. Build the URL using the session token and cached identifiers
+  const normalizedBridgeUrl = normalizeBridgeUrl(bridgeUrl);
+  let urlParams: Record<string, string> = { token: token ?? "" };
+
+  // Prioritize coverid
+  if (cacheData.coverid !== undefined && cacheData.coverid !== null) {
+    urlParams.coverid = String(cacheData.coverid);
+    return `${normalizedBridgeUrl}/api/artwork?${new URLSearchParams(urlParams).toString()}` as ArtworkUrl;
   }
 
-  if (item.coverid !== undefined && item.coverid !== null) {
-    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
-      token,
-    )}&coverid=${encodeURIComponent(String(item.coverid))}` as ArtworkUrl;
+  // Use artworkId (trackId)
+  if (cacheData.artworkId !== undefined && cacheData.artworkId !== null) {
+    urlParams.trackId = String(cacheData.artworkId);
+    return `${normalizedBridgeUrl}/api/artwork?${new URLSearchParams(urlParams).toString()}` as ArtworkUrl;
   }
 
-  if (item.artwork_id !== undefined && item.artwork_id !== null) {
-    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
-      token,
-    )}&trackId=${encodeURIComponent(String(item.artwork_id))}` as ArtworkUrl;
+  // Fallback to item ID
+  if (cacheData.itemId !== undefined && cacheData.itemId !== null) {
+    urlParams.trackId = String(cacheData.itemId);
+    return `${normalizedBridgeUrl}/api/artwork?${new URLSearchParams(urlParams).toString()}` as ArtworkUrl;
   }
 
-  if (item.id === undefined || item.id === null) {
-    return undefined;
-  }
-
-  const rawId = String(item.id).trim();
-  if (!rawId) {
-    return undefined;
-  }
-
-  const idSuffix = rawId.includes(":") ? rawId.split(":", 2)[1] : rawId;
-  if (!idSuffix) {
-    return undefined;
-  }
-
-  // For album items (type="album" or id starts with "album:"), try coverid first as fallback
-  const isAlbumItem = item.type === "album" || rawId.startsWith("album:");
-  if (isAlbumItem) {
-    return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
-      token,
-    )}&coverid=${encodeURIComponent(idSuffix)}` as ArtworkUrl;
-  }
-
-  return `${normalizeBridgeUrl(bridgeUrl)}/api/artwork?token=${encodeURIComponent(
-    token,
-  )}&trackId=${encodeURIComponent(idSuffix)}` as ArtworkUrl;
+  return undefined;
 };
 
 export interface ConnectionState {
@@ -619,16 +641,15 @@ class LmsConnectionService {
       return result;
     }
 
+    // Don't include artworkUrl in cached results - it contains the session token which can go stale.
+    // The raw identifiers (coverid, artwork_id, id, artwork_url) are kept, and artworkUrl will be
+    // reconstructed on-demand via getBrowseArtworkUrl() using the current session token.
     return {
       ...result,
-      item_loop: result.item_loop.map((item) => ({
-        ...item,
-        artworkUrl: normalizeBrowseItemArtwork(
-          item,
-          import.meta.env.VITE_BRIDGE_URL ?? getDefaultBridgeUrl(),
-          this.sessionToken ?? undefined,
-        ),
-      })),
+      item_loop: result.item_loop.map((item) => {
+        const { artworkUrl: _unused, ...rest } = item;
+        return rest;
+      }),
     };
   }
 
