@@ -170,7 +170,7 @@ describe("lmsConnection", () => {
       "SlimpMP3",
       "hiwiccp",
       "My Player",
-      false,
+      true,
     );
     expect(lmsConnection.getState()).toEqual(
       expect.objectContaining({
