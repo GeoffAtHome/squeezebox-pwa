@@ -3,12 +3,15 @@
  * Allows user to enter LMS server URL and credentials
  */
 
-import { LitElement, html, css } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { LitElement, html, css, PropertyValues } from "lit";
+import { customElement, query, state } from "lit/decorators.js";
 import { storage } from "@services/storage";
 
 @customElement("connection-dialog")
 export class ConnectionDialog extends LitElement {
+  @query("dialog")
+  dialogElement!: HTMLDialogElement;
+
   @state()
   serverUrl = "";
 
@@ -35,9 +38,9 @@ export class ConnectionDialog extends LitElement {
       display: block;
     }
 
-    .dialog {
+    dialog {
       max-width: 400px;
-      margin: 0 auto;
+      margin: 2rem auto; /* Adjusted margin for native dialog feel */
       padding: 2rem;
       background: #1a1a1a;
       border-radius: 8px;
@@ -162,6 +165,16 @@ export class ConnectionDialog extends LitElement {
     this.rememberPassword = storage.getRememberPassword();
   }
 
+  protected firstUpdated(_changedProperties: PropertyValues): void {
+    super.firstUpdated(_changedProperties);
+
+    // Open the dialog when the component is connected
+    if (this.dialogElement) {
+      this.dialogElement.open = true;
+    }
+
+  }
+
   private handleConnect = async () => {
     // Validate input
     if (!this.serverUrl.trim()) {
@@ -228,7 +241,7 @@ export class ConnectionDialog extends LitElement {
 
   render() {
     return html`
-      <div class="dialog">
+      <dialog>
         <h2>Connect to LMS</h2>
 
         ${this.error ? html`<div class="error">${this.error}</div>` : ""}
@@ -312,7 +325,7 @@ export class ConnectionDialog extends LitElement {
             </button>
           </div>
         </form>
-      </div>
+      </dialog>
     `;
   }
 }

@@ -197,7 +197,7 @@ class LmsConnectionService {
     username?: string,
     password?: string,
     playerName = "Squeezebox PWA",
-    rememberPassword = false,
+    rememberPassword = true,
   ): Promise<void> {
     try {
       const validatedUrl = makeServerUrl(serverUrl);
