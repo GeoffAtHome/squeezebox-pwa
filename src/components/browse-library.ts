@@ -3,6 +3,7 @@ import { customElement, query, state } from "lit/decorators.js";
 import { lmsConnection } from "@services/lms-connection";
 import type { BrowseItem } from "@services/bridge-client";
 import type { ItemId, ArtworkUrl } from "@utils/types";
+import { PAGE_SIZE } from "../utils/config";
 
 type LibraryEntry = {
   id?: ItemId;
@@ -24,8 +25,6 @@ type PathSegment = {
 
 @customElement("browse-library")
 export class BrowseLibrary extends LitElement {
-  private static readonly PAGE_SIZE = 1000;
-
   @query(".carousel")
   private carouselEl?: HTMLElement;
 
@@ -471,7 +470,7 @@ export class BrowseLibrary extends LitElement {
         const result = await lmsConnection.browseMenu({
           itemId: this.currentItemId,
           start,
-          quantity: BrowseLibrary.PAGE_SIZE,
+          quantity: PAGE_SIZE,
         });
 
         const items = result.item_loop ?? [];
@@ -505,7 +504,7 @@ export class BrowseLibrary extends LitElement {
 
         if (
           !Number.isFinite(result.count) &&
-          items.length < BrowseLibrary.PAGE_SIZE
+          items.length < PAGE_SIZE
         ) {
           hasMore = false;
         } else if (
@@ -534,7 +533,7 @@ export class BrowseLibrary extends LitElement {
       const result = await lmsConnection.browseMenu({
         itemId: searchTerm ? undefined : itemId,
         start: 0,
-        quantity: BrowseLibrary.PAGE_SIZE,
+        quantity: PAGE_SIZE,
         forceRefresh,
         search: searchTerm,
       });
@@ -590,7 +589,7 @@ export class BrowseLibrary extends LitElement {
       const result = await lmsConnection.browseMenu({
         itemId: this.currentItemId,
         start,
-        quantity: BrowseLibrary.PAGE_SIZE,
+        quantity: PAGE_SIZE,
         search: isSectionFilter
           ? undefined
           : this.filterText.trim() || undefined,

@@ -6,6 +6,7 @@ import {
 import { createConnection, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
+const PAGE_SIZE = 1000;
 import {
   buildHelo,
   buildStat,
@@ -1864,7 +1865,7 @@ const handleRequest = async (
         typeof payload.quantity === "number" &&
         Number.isFinite(payload.quantity)
           ? Math.max(1, Math.floor(payload.quantity))
-          : 1000;
+          : PAGE_SIZE;
       const itemId =
         typeof payload.itemId === "string" && payload.itemId.trim()
           ? payload.itemId.trim()

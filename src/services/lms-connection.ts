@@ -22,6 +22,7 @@ import type {
   Token,
   Username,
 } from "@utils/types";
+import { PAGE_SIZE } from "../utils/config";
 import { CONNECTION_STATUS_VALUES, makeServerUrl } from "@utils/types";
 
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1"]);
@@ -161,7 +162,7 @@ type BrowseWarmTarget = {
 };
 
 class LmsConnectionService {
-  private static readonly BROWSE_PREFETCH_PAGE_SIZE = 1000;
+  private static readonly BROWSE_PREFETCH_PAGE_SIZE = PAGE_SIZE;
   private static readonly BROWSE_PREFETCH_TARGETS: BrowseWarmTarget[] = [
     { itemId: "section:artists" as ItemId, label: "artists" },
     { itemId: "section:albums" as ItemId, label: "albums" },
