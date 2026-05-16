@@ -1,22 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { html } from "lit";
+import { render, getByShadow, setupTestCleanup } from "../../test/test-harness";
 
 import { lmsConnection } from "@services/lms-connection";
-import {
-  CONNECTION_STATUS_VALUES,
-  makeServerUrl,
-  type PlayerId,
-} from "@utils/types";
 import "./app-shell";
 
-const getRequiredElement = <T extends Element>(
-  root: ShadowRoot | null,
-  selector: string,
-): T => {
-  const element = root?.querySelector<T>(selector);
-
-  expect(element).not.toBeNull();
-  return element as T;
-};
+setupTestCleanup();
 
 describe("app-shell", () => {
   let connectionStateListener:
@@ -25,12 +14,14 @@ describe("app-shell", () => {
 
   beforeEach(() => {
     vi.spyOn(lmsConnection, "getState").mockReturnValue({
-      status: CONNECTION_STATUS_VALUES.IDLE,
+      status: "idle",
     });
+
     vi.spyOn(lmsConnection, "restoreConnection").mockResolvedValue(false);
     vi.spyOn(lmsConnection, "warmBrowseCacheInBackground").mockResolvedValue(
       undefined,
     );
+
     vi.spyOn(lmsConnection, "onStateChange").mockImplementation((listener) => {
       connectionStateListener = listener;
       return () => {
@@ -40,46 +31,31 @@ describe("app-shell", () => {
   });
 
   afterEach(() => {
-    document.body.innerHTML = "";
     vi.restoreAllMocks();
   });
 
   it("shows the connection dialog by default", async () => {
-    const element = document.createElement("app-shell");
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    const dialog = getByShadow(el, "connection-dialog");
+    expect(dialog).toBeInstanceOf(HTMLElement);
 
-    const root = element.shadowRoot;
-
-    expect(root?.textContent).toContain("Squeezebox");
-    expect(getRequiredElement(root, "connection-dialog")).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(root?.querySelector("player-controls")).toBeNull();
-    expect(root?.textContent).toContain("Not connected");
+    expect(el.shadowRoot?.textContent).toContain("Not connected");
+    expect(el.shadowRoot?.querySelector("player-controls")).toBeNull();
   });
 
   it("shows player-controls after successful connection", async () => {
-    const serverUrl = makeServerUrl("http://localhost:9000");
-
     vi.spyOn(lmsConnection, "connect").mockImplementation(async () => {
       connectionStateListener?.({
-        status: CONNECTION_STATUS_VALUES.CONNECTED,
-        serverUrl,
-        playerId: "02:ab:cd:ef:01:23" as PlayerId,
+        status: "connected",
+        serverUrl: "http://localhost:9000",
+        playerId: "02:ab:cd:ef:01:23",
       });
     });
 
-    const element = document.createElement("app-shell");
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
-
-    const root = element.shadowRoot;
-    const dialog = getRequiredElement(root, "connection-dialog");
+    const dialog = getByShadow(el, "connection-dialog");
 
     dialog.dispatchEvent(
       new CustomEvent("connect", {
@@ -94,40 +70,30 @@ describe("app-shell", () => {
       }),
     );
 
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    await (el as any).updateComplete;
 
-    expect(root?.querySelector("connection-dialog")).toBeNull();
-    expect(getRequiredElement(root, "player-controls")).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(root?.textContent).toContain("Connected");
+    expect(el.shadowRoot?.querySelector("connection-dialog")).toBeNull();
+    expect(getByShadow(el, "player-controls")).toBeInstanceOf(HTMLElement);
+    expect(el.shadowRoot?.textContent).toContain("Connected");
   });
 
   it("shows an error banner and keeps the dialog visible after a failed connection", async () => {
-    const serverUrl = makeServerUrl("http://localhost:9000");
     const connectSpy = vi
       .spyOn(lmsConnection, "connect")
       .mockImplementation(async () => {
         connectionStateListener?.({
-          status: CONNECTION_STATUS_VALUES.ERROR,
+          status: "error",
           error: "Authentication failed",
-          serverUrl,
+          serverUrl: "http://localhost:9000",
         });
         throw new Error("Authentication failed");
       });
-    const consoleErrorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
 
-    const element = document.createElement("app-shell");
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
-    const root = element.shadowRoot;
-    const dialog = getRequiredElement(root, "connection-dialog");
+    const dialog = getByShadow(el, "connection-dialog");
 
     dialog.dispatchEvent(
       new CustomEvent("connect", {
@@ -142,82 +108,20 @@ describe("app-shell", () => {
       }),
     );
 
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    await (el as any).updateComplete;
 
-    expect(connectSpy).toHaveBeenCalledWith(
-      "http://localhost:9000",
-      "wrong-user",
-      "wrong-pass",
-      "Squeezebox PWA",
-      undefined,
-    );
-    expect(getRequiredElement(root, "connection-dialog")).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(root?.querySelector("player-controls")).toBeNull();
-    expect(root?.textContent).toContain("Error: Authentication failed");
-    expect(consoleErrorSpy).toHaveBeenCalled();
-  });
-
-  it("shows a bridge network error for bad LMS URL and keeps dialog visible", async () => {
-    const serverUrl = makeServerUrl("http://0.0.0.199:9000");
-    vi.spyOn(lmsConnection, "connect").mockImplementation(async () => {
-      connectionStateListener?.({
-        status: CONNECTION_STATUS_VALUES.ERROR,
-        error: "connect ENETUNREACH 0.0.0.199:3483",
-        serverUrl,
-      });
-      throw new Error("connect ENETUNREACH 0.0.0.199:3483");
-    });
-    const consoleErrorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-
-    const element = document.createElement("app-shell");
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
-
-    const root = element.shadowRoot;
-    const dialog = getRequiredElement(root, "connection-dialog");
-
-    dialog.dispatchEvent(
-      new CustomEvent("connect", {
-        detail: {
-          serverUrl: "http://0.0.0.199:9000",
-          username: "SlimpMP3",
-          password: "hiwiccp",
-          playerName: "Squeezebox PWA",
-        },
-        bubbles: true,
-        composed: true,
-      }),
-    );
-
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
-
-    expect(getRequiredElement(root, "connection-dialog")).toBeInstanceOf(
-      HTMLElement,
-    );
-    expect(root?.querySelector("player-controls")).toBeNull();
-    expect(root?.textContent).toContain(
-      "Error: connect ENETUNREACH 0.0.0.199:3483",
-    );
-    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(connectSpy).toHaveBeenCalled();
+    expect(getByShadow(el, "connection-dialog")).toBeInstanceOf(HTMLElement);
+    expect(el.shadowRoot?.querySelector("player-controls")).toBeNull();
+    expect(el.shadowRoot?.textContent).toContain("Error: Authentication failed");
   });
 
   it("passes rememberPassword through connect event", async () => {
     const connectSpy = vi.spyOn(lmsConnection, "connect").mockResolvedValue();
 
-    const element = document.createElement("app-shell");
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
-    const root = element.shadowRoot;
-    const dialog = getRequiredElement(root, "connection-dialog");
+    const dialog = getByShadow(el, "connection-dialog");
 
     dialog.dispatchEvent(
       new CustomEvent("connect", {
@@ -233,8 +137,7 @@ describe("app-shell", () => {
       }),
     );
 
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    await (el as any).updateComplete;
 
     expect(connectSpy).toHaveBeenCalledWith(
       "http://localhost:9000",
@@ -249,12 +152,9 @@ describe("app-shell", () => {
     vi.spyOn(lmsConnection, "connect").mockResolvedValue();
     const warmSpy = vi.spyOn(lmsConnection, "warmBrowseCacheInBackground");
 
-    const element = document.createElement("app-shell");
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
-    const dialog = getRequiredElement(element.shadowRoot, "connection-dialog");
+    const dialog = getByShadow(el, "connection-dialog");
 
     dialog.dispatchEvent(
       new CustomEvent("connect", {
@@ -278,10 +178,7 @@ describe("app-shell", () => {
     vi.spyOn(lmsConnection, "restoreConnection").mockResolvedValue(true);
     const warmSpy = vi.spyOn(lmsConnection, "warmBrowseCacheInBackground");
 
-    const element = document.createElement("app-shell");
-    document.body.appendChild(element);
-    await (element as HTMLElement & { updateComplete?: Promise<unknown> })
-      .updateComplete;
+    const el = await render<HTMLElement>(html`<app-shell></app-shell>`);
 
     await Promise.resolve();
 

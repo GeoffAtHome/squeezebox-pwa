@@ -5,6 +5,10 @@
 
 import { LitElement, html, css, PropertyValues } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
+import "@material/web/textfield/filled-text-field.js";
+import "@material/web/checkbox/checkbox.js";
+import "@material/web/button/filled-button.js";
+import "@material/web/button/text-button.js";
 import { storage } from "@services/storage";
 
 @customElement("connection-dialog")
@@ -40,39 +44,21 @@ export class ConnectionDialog extends LitElement {
 
     dialog {
       max-width: 400px;
-      margin: 2rem auto; /* Adjusted margin for native dialog feel */
+      margin: 2rem auto;
       padding: 2rem;
       background: #1a1a1a;
       border-radius: 8px;
       border: 1px solid #333;
     }
 
-    .form-group {
-      margin-bottom: 1.5rem;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 0.5rem;
-      font-weight: 500;
-      font-size: 0.9rem;
-    }
-
-    input {
+    md-filled-text-field {
       width: 100%;
-      padding: 0.75rem;
-      border: 1px solid #333;
-      border-radius: 4px;
-      background: #000;
-      color: #fff;
-      font-size: 1rem;
-      box-sizing: border-box;
+      --md-theme-primary: #0066cc;
     }
 
-    input:focus {
-      outline: none;
-      border-color: #0066cc;
-      box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+    md-checkbox {
+      --md-theme-primary: #0066cc;
+      margin-right: 0.5rem;
     }
 
     .button-group {
@@ -81,38 +67,12 @@ export class ConnectionDialog extends LitElement {
       margin-top: 2rem;
     }
 
-    button {
+    md-filled-button {
       flex: 1;
-      padding: 0.75rem;
-      border: none;
-      border-radius: 4px;
-      font-size: 1rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s;
     }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .primary {
-      background: #0066cc;
-      color: #fff;
-    }
-
-    .primary:hover:not(:disabled) {
-      background: #0052a3;
-    }
-
-    .secondary {
-      background: #333;
-      color: #fff;
-    }
-
-    .secondary:hover:not(:disabled) {
-      background: #444;
+    md-text-button {
+      flex: 1;
     }
 
     .error {
@@ -137,13 +97,6 @@ export class ConnectionDialog extends LitElement {
       margin-top: 0.5rem;
       color: #ddd;
       font-size: 0.9rem;
-    }
-
-    .checkbox-group input {
-      width: auto;
-      padding: 0;
-      margin: 0;
-      accent-color: #0066cc;
     }
 
     h2 {
@@ -209,27 +162,27 @@ export class ConnectionDialog extends LitElement {
   };
 
   private handleServerUrlChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement & { value: string };
     this.serverUrl = target.value;
   };
 
   private handleUsernameChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement & { value: string };
     this.username = target.value;
   };
 
   private handlePasswordChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement & { value: string };
     this.password = target.value;
   };
 
   private handlePlayerNameChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement & { value: string };
     this.playerName = target.value;
   };
 
   private handleRememberPasswordChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement & { checked: boolean };
     this.rememberPassword = target.checked;
   };
 
@@ -246,85 +199,70 @@ export class ConnectionDialog extends LitElement {
 
         ${this.error ? html`<div class="error">${this.error}</div>` : ""}
 
-        <form @submit=${(e: Event) => e.preventDefault()}>
-          <div class="form-group">
-            <label for="server-url">Server URL</label>
-            <input
+            <md-filled-text-field
               id="server-url"
               type="text"
+              label="Server URL"
               placeholder="http://lms.example.com:9000"
               .value=${this.serverUrl}
               @input=${this.handleServerUrlChange}
               @keypress=${this.handleKeyPress}
               ?disabled=${this.isConnecting}
-              autocomplete="url"
-            />
+            ></md-filled-text-field>
             <div class="info">e.g., http://192.168.1.100:9000</div>
-          </div>
-
-          <div class="form-group">
-            <label for="player-name">Player Name</label>
-            <input
+            <md-filled-text-field
               id="player-name"
               type="text"
+              label="Player Name"
               placeholder="Squeezebox PWA"
               .value=${this.playerName}
               @input=${this.handlePlayerNameChange}
               @keypress=${this.handleKeyPress}
               ?disabled=${this.isConnecting}
-              autocomplete="off"
-            />
+            ></md-filled-text-field>
             <div class="info">How this player appears in LMS</div>
           </div>
 
-          <div class="form-group">
-            <label for="username">Username (optional)</label>
-            <input
+            <md-filled-text-field
               id="username"
               type="text"
+              label="Username (optional)"
               placeholder="admin"
               .value=${this.username}
               @input=${this.handleUsernameChange}
               @keypress=${this.handleKeyPress}
               ?disabled=${this.isConnecting}
-              autocomplete="username"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="password">Password (optional)</label>
-            <input
+            ></md-filled-text-field>
+            <md-filled-text-field
               id="password"
               type="password"
+              label="Password (optional)"
               placeholder="••••••••"
               .value=${this.password}
               @input=${this.handlePasswordChange}
               @keypress=${this.handleKeyPress}
               ?disabled=${this.isConnecting}
-              autocomplete="current-password"
-            />
-            <label class="checkbox-group" for="remember-password">
-              <input
+            ></md-filled-text-field>
+
+            <div class="checkbox-group">
+              <md-checkbox
                 id="remember-password"
-                type="checkbox"
                 .checked=${this.rememberPassword}
                 @change=${this.handleRememberPasswordChange}
                 ?disabled=${this.isConnecting}
-              />
-              Remember password on this device
-            </label>
+              ></md-checkbox>
+              <label for="remember-password">Remember password on this device</label>
+            </div>
           </div>
 
           <div class="button-group">
-            <button
-              class="primary"
+            <md-filled-button
               @click=${this.handleConnect}
               ?disabled=${this.isConnecting}
             >
               ${this.isConnecting ? "Connecting..." : "Connect"}
-            </button>
+            </md-filled-button>
           </div>
-        </form>
       </dialog>
     `;
   }

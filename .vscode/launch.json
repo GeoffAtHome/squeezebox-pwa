@@ -1,6 +1,9 @@
 {
     "version": "0.2.0",
     "configurations": [
+
+
+
         // 1. Debug Bridge Server (Node.js process running bridge/server.ts)
         {
             "name": "Debug Bridge Server",
@@ -15,7 +18,17 @@
                 "NODE_ENV": "development"
             }
         },
-        // 2. Debug PWA Frontend (Starts the development server)
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Current Test File",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "program": "${workspaceRoot}/node_modules/vitest/vitest.mjs",
+      "args": ["run", "${relativeFile}"],
+      "smartStep": true,
+      "console": "integratedTerminal"
+    },
         {
             "name": "Debug PWA Client",
             "type": "node",

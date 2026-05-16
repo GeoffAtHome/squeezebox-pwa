@@ -14,17 +14,17 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
-    "@lit/reactive-element": "^2.1.0",
-    "@material/web": "^1.4.0",
-    "lit": "^3.2.0"
+    "@lit/reactive-element": "^2.1.2",
+    "@material/web": "^2.4.1",
+    "lit": "^3.3.3"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.4.0",
-    "@types/node": "^22.19.19",
-    "@vitest/ui": "^2.1.0",
-    "jsdom": "^25.0.0",
+    "@testing-library/dom": "^10.4.1",
+    "@types/node": "^25.8.0",
+    "@vitest/ui": "^4.1.6",
+    "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
-    "vite": "^6.0.0",
-    "vitest": "^2.1.0"
+    "vite": "^8.0.13",
+    "vitest": "^4.1.6"
   }
 }
