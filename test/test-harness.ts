@@ -1,5 +1,5 @@
 import { render as litRender } from "lit";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 /**
  * Render a Lit component into the document and wait for updateComplete.

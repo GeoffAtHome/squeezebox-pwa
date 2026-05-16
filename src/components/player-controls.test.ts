@@ -47,7 +47,7 @@ describe("player-controls", () => {
     (lmsConnection as any).__emit(state);
 
   it("sends trackdone via fallback after playing->stopped when ended is not fired", async () => {
-    const el = await render<HTMLElement>(html`<player-controls></player-controls>`);
+    await render<HTMLElement>(html`<player-controls></player-controls>`);
 
     // Ignore startup events
     vi.clearAllMocks();
@@ -72,7 +72,7 @@ describe("player-controls", () => {
   });
 
   it("cancels trackdone fallback if a new stream arrives quickly", async () => {
-    const el = await render<HTMLElement>(html`<player-controls></player-controls>`);
+    await render<HTMLElement>(html`<player-controls></player-controls>`);
 
     // Ignore startup events
     vi.clearAllMocks();
@@ -104,7 +104,7 @@ describe("player-controls", () => {
   });
 
   it("sends trackdone fallback when stopped state repeats for the same stream", async () => {
-    const el = await render<HTMLElement>(html`<player-controls></player-controls>`);
+    await render<HTMLElement>(html`<player-controls></player-controls>`);
 
     // Ignore startup events
     vi.clearAllMocks();

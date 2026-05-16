@@ -15,7 +15,7 @@ describe("connection-dialog", () => {
     const serverUrl = getByShadow(el, "#server-url");
     const username = getByShadow(el, "#username");
     const password = getByShadow(el, "#password");
-    const button = getByShadow(el, "md-filled-button");
+    const button = getByShadow<HTMLElement>(el, "md-filled-button");
 
     expect(el.shadowRoot?.textContent).toContain("Connect to LMS");
     expect(serverUrl).toBeInstanceOf(HTMLElement);
@@ -32,7 +32,7 @@ describe("connection-dialog", () => {
     const serverUrl = getByShadow<HTMLInputElement>(el, "#server-url");
     const username = getByShadow<HTMLInputElement>(el, "#username");
     const password = getByShadow<HTMLInputElement>(el, "#password");
-    const button = getByShadow(el, "md-filled-button");
+    const button = getByShadow<HTMLElement>(el, "md-filled-button");
 
     serverUrl.value = "  http://localhost:9000  ";
     username.value = "admin";
@@ -61,7 +61,7 @@ describe("connection-dialog", () => {
 
     const serverUrl = getByShadow<HTMLInputElement>(el, "#server-url");
     const remember = getByShadow<any>(el, "#remember-password");
-    const button = getByShadow(el, "md-filled-button");
+    const button = getByShadow<HTMLElement>(el, "md-filled-button");
 
     serverUrl.value = "http://localhost:9000";
     serverUrl.dispatchEvent(new Event("input"));
@@ -80,7 +80,7 @@ describe("connection-dialog", () => {
     const el = await render<HTMLElement>(html`<connection-dialog></connection-dialog>`);
     el.addEventListener("connect", handler);
 
-    const button = getByShadow(el, "md-filled-button");
+    const button = getByShadow<HTMLElement>(el, "md-filled-button");
     button.click();
 
     await (el as any).updateComplete;
