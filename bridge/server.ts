@@ -170,6 +170,7 @@ type LmsBrowseEntry = {
   coverid?: string | number;
   artwork_url?: string;
   artwork_id?: string | number;
+  artwork_track_id?: string | number;
   duration?: string | number;
   tracknum?: string | number;
 };
@@ -345,7 +346,10 @@ const joinMeta = (...parts: Array<string | undefined>): string | undefined => {
 
 const buildBrowseArtworkUrl = (
   session: Session | undefined,
-  entry: Pick<LmsBrowseEntry, "id" | "coverid" | "artwork_url" | "artwork_id">,
+  entry: Pick<
+    LmsBrowseEntry,
+    "id" | "coverid" | "artwork_url" | "artwork_id" | "artwork_track_id"
+  >,
 ): string | undefined => {
   if (!session) {
     return undefined;
@@ -359,6 +363,12 @@ const normalizeArtworkPath = (
   serverUrl: string,
 ): string | undefined => {
   if (typeof artworkUrl !== "string" || artworkUrl.trim().length === 0) {
+    return undefined;
+  }
+
+  // Reject paths that are just coverid fragments (e.g., "/1b2cee40")
+  // Valid artwork paths should contain "/music/" or "/cover"
+  if (!artworkUrl.includes("/music/") && !artworkUrl.includes("/cover")) {
     return undefined;
   }
 
@@ -392,7 +402,10 @@ const browseLibrary = async (
       titles_loop?: LmsBrowseEntry[];
       song_loop?: LmsBrowseEntry[];
       count?: number;
-    }>(config, [0, ["titles", start, quantity, `search:${search}`, "tags:adKlcejt"]]);
+    }>(config, [
+      0,
+      ["titles", start, quantity, `search:${search}`, "tags:adKlcejt"],
+    ]);
 
     return {
       item_loop: mapQueryItems(
@@ -680,7 +693,13 @@ const browseLibrary = async (
         count?: number;
       }>(config, [
         0,
-        ["albums", start, quantity, `artist_id:${target.value}`, "tags:alcsKje"],
+        [
+          "albums",
+          start,
+          quantity,
+          `artist_id:${target.value}`,
+          "tags:alcsKje",
+        ],
       ]);
 
       return {
@@ -942,6 +961,15 @@ const buildArtworkProxyUrl = (
     artwork_id?: string | number;
   },
 ): string | undefined => {
+  // Prioritize coverid - it's the most reliable artwork identifier
+  if (current?.coverid !== undefined && current.coverid !== null) {
+    return buildSessionUrl("/api/artwork", {
+      token: session.token,
+      coverid: String(current.coverid),
+    });
+  }
+
+  // Try to use artwork_track_id or artwork_url as a full path (for remote/complete paths)
   const artworkPath = normalizeArtworkPath(
     current?.artwork_track_id ?? current?.artwork_url,
     session.config.serverUrl,
@@ -953,14 +981,10 @@ const buildArtworkProxyUrl = (
     });
   }
 
-  if (current?.coverid !== undefined && current.coverid !== null) {
-    return buildSessionUrl("/api/artwork", {
-      token: session.token,
-      coverid: String(current.coverid),
-    });
-  }
-
-  if (current?.artwork_track_id !== undefined && current.artwork_track_id !== null) {
+  if (
+    current?.artwork_track_id !== undefined &&
+    current.artwork_track_id !== null
+  ) {
     return buildSessionUrl("/api/artwork", {
       token: session.token,
       trackId: String(current.artwork_track_id),
