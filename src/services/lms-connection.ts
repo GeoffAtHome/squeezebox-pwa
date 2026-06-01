@@ -453,13 +453,16 @@ class LmsConnectionService {
       normalizedOptions,
     );
 
+    // Strip artworkUrl before caching to avoid token staleness
+    const qualifiedResult = this.qualifyBrowseResult(result);
+
     this.browseCache.set(cacheKey, {
       generation: this.browseCacheGeneration,
-      result,
+      result: qualifiedResult,
     });
-    void this.persistBrowseCacheEntry(cacheKey, result);
+    void this.persistBrowseCacheEntry(cacheKey, qualifiedResult);
 
-    return result;
+    return qualifiedResult;
   }
 
   async playBrowseItem(itemId: ItemId): Promise<void> {
