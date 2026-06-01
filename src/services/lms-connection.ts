@@ -66,12 +66,25 @@ const extractArtworkCacheData = (
     cacheData.coverid = item.coverid;
   }
 
-  // 3. Check for artwork_id
-  if (item.artwork_id !== undefined && item.artwork_id !== null) {
+  // 3. Check for artwork_track_id (from LMS album queries)
+  if (
+    !cacheData.coverid &&
+    item.artwork_track_id !== undefined &&
+    item.artwork_track_id !== null
+  ) {
+    cacheData.artworkId = item.artwork_track_id;
+  }
+
+  // 4. Check for artwork_id
+  if (
+    !cacheData.artworkId &&
+    item.artwork_id !== undefined &&
+    item.artwork_id !== null
+  ) {
     cacheData.artworkId = item.artwork_id;
   }
 
-  // 4. Fallback to general ID if nothing else is found
+  // 5. Fallback to general ID if nothing else is found
   if (
     !cacheData.coverid &&
     !cacheData.artworkId &&
@@ -453,16 +466,17 @@ class LmsConnectionService {
       normalizedOptions,
     );
 
-    // Strip artworkUrl before caching to avoid token staleness
-    const qualifiedResult = this.qualifyBrowseResult(result);
-
+    // Store qualified result in memory cache for current session (includes artworkUrl with current token)
     this.browseCache.set(cacheKey, {
       generation: this.browseCacheGeneration,
-      result: qualifiedResult,
+      result,
     });
-    void this.persistBrowseCacheEntry(cacheKey, qualifiedResult);
 
-    return qualifiedResult;
+    // Persist to storage WITHOUT artworkUrl (to avoid token staleness on next session)
+    const qualifiedForStorage = this.qualifyBrowseResult(result);
+    void this.persistBrowseCacheEntry(cacheKey, qualifiedForStorage);
+
+    return result;
   }
 
   async playBrowseItem(itemId: ItemId): Promise<void> {
@@ -633,9 +647,20 @@ class LmsConnectionService {
     );
 
     for (const [key, result] of Object.entries(persisted)) {
+      // Reconstruct artworkUrl for persisted items (they were stripped before storage)
+      const resultWithArtwork: BrowseResult = result.item_loop
+        ? {
+            ...result,
+            item_loop: result.item_loop.map((item) => ({
+              ...item,
+              artworkUrl: this.getBrowseArtworkUrl(item),
+            })),
+          }
+        : result;
+
       this.browseCache.set(key, {
         generation: this.browseCacheGeneration,
-        result: this.qualifyBrowseResult(result),
+        result: resultWithArtwork,
       });
     }
   }
