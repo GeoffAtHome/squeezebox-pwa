@@ -2006,6 +2006,11 @@ const handleRequest = async (
         result,
       });
 
+      // Immediately refresh status so client gets feedback without waiting for polling interval
+      if (session) {
+        void refreshPlayerStatus(session);
+      }
+
       sendJson(res, 200, { ok: true });
       return;
     }
