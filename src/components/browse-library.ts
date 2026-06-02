@@ -817,7 +817,7 @@ export class BrowseLibrary extends LitElement {
 
     const query = this.filterText.toLowerCase().trim();
     return this.entries.filter((entry) =>
-      entry.title.toLowerCase().startsWith(query),
+      entry.title.toLowerCase().includes(query),
     );
   }
 
