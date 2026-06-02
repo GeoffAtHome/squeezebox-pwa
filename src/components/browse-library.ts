@@ -502,10 +502,7 @@ export class BrowseLibrary extends LitElement {
           Number(result.count ?? this.entries.length),
         );
 
-        if (
-          !Number.isFinite(result.count) &&
-          items.length < PAGE_SIZE
-        ) {
+        if (!Number.isFinite(result.count) && items.length < PAGE_SIZE) {
           hasMore = false;
         } else if (
           Number.isFinite(this.totalCount) &&
@@ -893,7 +890,11 @@ export class BrowseLibrary extends LitElement {
 
   private renderArtwork(entry: LibraryEntry) {
     if (entry.artworkUrl) {
-      return html`<img .src=${entry.artworkUrl} alt="${entry.title}" />`;
+      return html`<img
+        .src=${entry.artworkUrl}
+        alt="${entry.title}"
+        loading="lazy"
+      />`;
     }
 
     const initials = entry.title

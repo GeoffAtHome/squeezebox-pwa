@@ -598,10 +598,11 @@ export class PlayerControls extends LitElement {
                 <div class="album-art">
                   ${artworkUrl
                     ? html`<img
-                        src="${artworkUrl}"
+                        .src="${artworkUrl}"
                         alt="Album art"
                         width="200"
                         height="200"
+                        loading="lazy"
                       />`
                     : html`🎵`}
                 </div>
