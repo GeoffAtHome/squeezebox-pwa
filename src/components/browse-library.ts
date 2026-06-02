@@ -734,7 +734,7 @@ export class BrowseLibrary extends LitElement {
       }
       // Clear filter when entering a child level
       this.filterText = "";
-      void this.loadMenu(entry.id, entry.title);
+      void this.loadMenu(entry.id, entry.title, true);
       return;
     }
 
@@ -793,7 +793,7 @@ export class BrowseLibrary extends LitElement {
     // Restore the filter from the level we're returning to
     this.filterText = target.filter ?? "";
 
-    void this.loadMenu(target.id);
+    void this.loadMenu(target.id, undefined, true);
   }
 
   private handleRefresh(): void {
