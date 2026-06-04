@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
 import { lmsConnection } from "@services/lms-connection";
 import { type ArtworkUrl } from "@utils/types";
 import "./browse-library";
@@ -283,7 +282,7 @@ describe("browse-library", () => {
       itemId: "myapps",
       start: 0,
       quantity: 1000,
-      forceRefresh: false,
+      forceRefresh: true,
     });
     expect(element.shadowRoot?.textContent).toContain("Radio");
   });

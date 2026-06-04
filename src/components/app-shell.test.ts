@@ -31,6 +31,10 @@ describe("app-shell", () => {
     vi.spyOn(lmsConnection, "warmBrowseCacheInBackground").mockResolvedValue(
       undefined,
     );
+    vi.spyOn(lmsConnection, "browseMenu").mockResolvedValue({
+      item_loop: [],
+      count: 0,
+    });
     vi.spyOn(lmsConnection, "onStateChange").mockImplementation((listener) => {
       connectionStateListener = listener;
       return () => {
