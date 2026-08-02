@@ -519,7 +519,6 @@ export class BrowseLibrary extends LitElement {
   private async loadMenu(
     itemId?: ItemId,
     nextLabel?: string,
-    forceRefresh = false,
     search?: string,
   ): Promise<void> {
     this.loadingMenu = true;
@@ -531,7 +530,7 @@ export class BrowseLibrary extends LitElement {
         itemId: searchTerm ? undefined : itemId,
         start: 0,
         quantity: PAGE_SIZE,
-        forceRefresh,
+        forceRefresh: true,
         search: searchTerm,
       });
       const items = result.item_loop ?? [];
@@ -734,7 +733,7 @@ export class BrowseLibrary extends LitElement {
       }
       // Clear filter when entering a child level
       this.filterText = "";
-      void this.loadMenu(entry.id, entry.title, true);
+      void this.loadMenu(entry.id, entry.title);
       return;
     }
 
@@ -778,7 +777,7 @@ export class BrowseLibrary extends LitElement {
       if (restorePath) {
         this.path = restorePath;
       }
-      void this.loadMenu(restoreItemId, undefined, true).then(() =>
+      void this.loadMenu(restoreItemId, undefined).then(() =>
         this.filterInputEl?.focus(),
       );
       return;
@@ -793,7 +792,7 @@ export class BrowseLibrary extends LitElement {
     // Restore the filter from the level we're returning to
     this.filterText = target.filter ?? "";
 
-    void this.loadMenu(target.id, undefined, true);
+    void this.loadMenu(target.id, undefined);
   }
 
   private handleRefresh(): void {
@@ -801,7 +800,6 @@ export class BrowseLibrary extends LitElement {
     void this.loadMenu(
       this.isSearchActive ? undefined : current.id,
       undefined,
-      true,
       this.filterText.trim() || undefined,
     );
   }
@@ -845,7 +843,7 @@ export class BrowseLibrary extends LitElement {
         this.previousPath = this.path;
         this.previousItemId = this.currentItemId;
       }
-      void this.loadMenu(undefined, undefined, true, searchTerm).then(() =>
+      void this.loadMenu(undefined, undefined, searchTerm).then(() =>
         this.filterInputEl?.focus(),
       );
       return;
@@ -859,7 +857,7 @@ export class BrowseLibrary extends LitElement {
       if (restorePath) {
         this.path = restorePath;
       }
-      void this.loadMenu(restoreItemId, undefined, true).then(() =>
+      void this.loadMenu(restoreItemId, undefined).then(() =>
         this.filterInputEl?.focus(),
       );
     }
@@ -871,7 +869,6 @@ export class BrowseLibrary extends LitElement {
     void this.loadMenu(
       this.isSearchActive ? undefined : current.id,
       undefined,
-      true,
       this.filterText.trim() || undefined,
     );
   }
