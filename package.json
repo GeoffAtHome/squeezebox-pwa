@@ -11,9 +11,14 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "cap:sync": "npx cap sync android",
+    "android:build": "npm run build && npm run cap:sync && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "@lit/reactive-element": "^2.1.2",
     "@material/web": "^2.4.1",
     "lit": "^3.3.3"

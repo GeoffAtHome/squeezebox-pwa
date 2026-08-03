@@ -530,8 +530,8 @@ export class BrowseLibrary extends LitElement {
         itemId: searchTerm ? undefined : itemId,
         start: 0,
         quantity: PAGE_SIZE,
-        forceRefresh: true,
-        search: searchTerm,
+        forceRefresh: !!searchTerm,
+        ...(searchTerm ? { search: searchTerm } : {}),
       });
       const items = result.item_loop ?? [];
       this.entries = items.map((item, index) => this.toEntry(item, index));

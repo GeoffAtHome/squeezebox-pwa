@@ -196,7 +196,30 @@ Notes:
 - Cloudflare Tunnel is a better fit than opening router ports because the bridge is an HTTP/SSE service from the browser's perspective.
 - If LMS is protected by HTTP Basic auth, the bridge forwards credentials you enter in the PWA connection dialog.
 
-## Android use
+## Android / Capacitor use
+
+This project now includes a Capacitor wrapper for Android so the PWA can run as a native app on Android devices.
+
+### Build the Android app
+
+```bash
+npm install
+npm run android:build
+```
+
+That command builds the web app, syncs it into the Android project, and assembles a debug APK.
+
+### Run it on a device
+
+```bash
+npx cap open android
+```
+
+Then use Android Studio to deploy the app to a handset or emulator.
+
+### Notes for local LMS/bridge access
+
+Because this app communicates with a local bridge and LMS over HTTP in development, the Android app is configured to allow cleartext traffic. This makes local LAN access work more reliably from the native app.
 
 Once Firebase Hosting and the bridge tunnel are live:
 
