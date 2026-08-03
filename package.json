@@ -13,7 +13,8 @@
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
     "cap:sync": "npx cap sync android",
-    "android:build": "npm run build && npm run cap:sync && cd android && gradlew.bat assembleDebug"
+    "android:build": "npm run build && npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "android:install": "npm run android:build && node scripts/install-android-apk.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

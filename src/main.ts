@@ -2,6 +2,7 @@
  * Main entry point for Squeezebox PWA
  */
 import { AppShell } from "./components/app-shell";
+import { initAndroidAutoBridge } from "./services/android-auto";
 
 // Register service worker for PWA support (production only — dev mode cannot
 // execute a TypeScript source file directly as a service worker script)
@@ -19,3 +20,5 @@ if (app) {
   const appShell = new AppShell();
   app.appendChild(appShell);
 }
+
+initAndroidAutoBridge();
